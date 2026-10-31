@@ -179,7 +179,12 @@ QByteArray OverlayManager::composeDebugText(bool includeMenuText)
                                              .arg(m_Menu.items[i].label, -10)
                                              .arg(m_Menu.items[i].valueText);
         }
-        composed = menuText.toUtf8() + (composed.isEmpty() ? "" : "\n\n" + composed);
+        QByteArray menuBytes = menuText.toUtf8();
+        if (!composed.isEmpty()) {
+            menuBytes += "\n\n";
+            menuBytes += composed;
+        }
+        composed = menuBytes;
     }
 
     if (m_DebugStatsEnabled && m_Overlays[OverlayDebug].text[0] != 0) {

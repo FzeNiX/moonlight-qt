@@ -12,6 +12,7 @@
 #include <SDL_syswm.h>
 
 #include <dwmapi.h>
+#include <d3dcompiler.h>
 
 using Microsoft::WRL::ComPtr;
 
@@ -766,16 +767,27 @@ void D3D11VARenderer::renderFrame(AVFrame* frame)
         lockContext(this);
     }
 
-    // Clear the back buffer
-    const float clearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-    m_RenderDeviceContext->ClearRenderTargetView(m_RenderTargetView.Get(), clearColor);
+    // If sharpening is enabled, the video is first rendered into an intermediate texture
+    bool sharpen = m_SharpenPixelShader && m_SharpenRenderTargetView;
+    ID3D11RenderTargetView* videoRenderTarget = sharpen ? m_SharpenRenderTargetView.Get() : m_RenderTargetView.Get();
 
-    // Bind the back buffer. This needs to be done each time,
+    // Clear the video render target
+    const float clearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    m_RenderDeviceContext->ClearRenderTargetView(videoRenderTarget, clearColor);
+
+    // Bind the video render target. This needs to be done each time,
     // because the render target view will be unbound by Present().
-    m_RenderDeviceContext->OMSetRenderTargets(1, m_RenderTargetView.GetAddressOf(), nullptr);
+    m_RenderDeviceContext->OMSetRenderTargets(1, &videoRenderTarget, nullptr);
 
     // Render our video frame with the aspect-ratio adjusted viewport
     renderVideo(frame);
+
+    if (sharpen) {
+        // Sharpen the video into the back buffer, which also covers the
+        // letterbox area since the whole intermediate texture is drawn.
+        m_RenderDeviceContext->OMSetRenderTargets(1, m_RenderTargetView.GetAddressOf(), nullptr);
+        renderSharpenPass();
+    }
 
     // Render overlays on top of the video stream
     for (int i = 0; i < Overlay::OverlayMax; i++) {
@@ -1291,6 +1303,11 @@ bool D3D11VARenderer::notifyWindowChanged(PWINDOW_STATE_CHANGE_INFO stateInfo)
 
         // We must release all references to the back buffer
         m_RenderTargetView.Reset();
+
+        // The sharpening texture is sized to the back buffer, so it is recreated too
+        m_SharpenResourceView.Reset();
+        m_SharpenRenderTargetView.Reset();
+        m_SharpenTexture.Reset();
         m_RenderDeviceContext->Flush();
 
         HRESULT hr = m_SwapChain->ResizeBuffers(0, stateInfo->width, stateInfo->height, DXGI_FORMAT_UNKNOWN, swapchainDesc.Flags);
@@ -1716,6 +1733,14 @@ bool D3D11VARenderer::setupRenderingResources()
         }
     }
 
+    // Sharpening is optional, so failure here just leaves it disabled
+    if (m_DecoderParams.sharpness > 0 && !m_DecoderParams.testOnly) {
+        if (!createSharpenPixelShader()) {
+            m_SharpenPixelShader.Reset();
+            m_SharpenVertexBuffer.Reset();
+        }
+    }
+
     if (!setupSwapchainDependentResources()) {
         return false;
     }
@@ -1761,7 +1786,176 @@ bool D3D11VARenderer::setupSwapchainDependentResources()
         m_RenderDeviceContext->RSSetViewports(1, &viewport);
     }
 
+    if (m_SharpenPixelShader && !setupSharpenResources()) {
+        // Continue without sharpening rather than failing to render at all
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "Disabling sharpening due to resource allocation failure");
+        m_SharpenResourceView.Reset();
+        m_SharpenRenderTargetView.Reset();
+        m_SharpenTexture.Reset();
+        m_SharpenPixelShader.Reset();
+    }
+
     return true;
+}
+
+bool D3D11VARenderer::createSharpenPixelShader()
+{
+    HRESULT hr;
+
+    QByteArray shaderSource = Path::readDataFile("d3d11_rcas_pixel.hlsl");
+    if (shaderSource.isEmpty()) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "Unable to read sharpening shader source");
+        return false;
+    }
+
+    // The sharpening shader is compiled at runtime (only when sharpening is enabled),
+    // using the D3D compiler that ships with Windows 10 and later.
+    HMODULE compilerModule = LoadLibraryExW(D3DCOMPILER_DLL_W, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (compilerModule == nullptr) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "Unable to load " D3DCOMPILER_DLL_A ": %u",
+                     GetLastError());
+        return false;
+    }
+
+    auto fnD3DCompile = (pD3DCompile)GetProcAddress(compilerModule, "D3DCompile");
+    if (fnD3DCompile == nullptr) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "D3DCompile() is not available");
+        FreeLibrary(compilerModule);
+        return false;
+    }
+
+    char strength[16];
+    SDL_snprintf(strength, sizeof(strength), "%.3f", SDL_min(1.0f, SDL_max(0.0f, m_DecoderParams.sharpness)));
+    const D3D_SHADER_MACRO defines[] = {
+        { "RCAS_STRENGTH", strength },
+        { nullptr, nullptr },
+    };
+
+    ComPtr<ID3DBlob> bytecode, errors;
+    hr = fnD3DCompile(shaderSource.constData(), shaderSource.size(), "d3d11_rcas_pixel.hlsl",
+                      defines, nullptr, "main", "ps_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0,
+                      &bytecode, &errors);
+    FreeLibrary(compilerModule);
+    if (FAILED(hr)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "D3DCompile() failed for sharpening shader: %x (%s)",
+                     hr,
+                     errors ? (const char*)errors->GetBufferPointer() : "no details");
+        return false;
+    }
+
+    hr = m_RenderDevice->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr, &m_SharpenPixelShader);
+    if (FAILED(hr)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "ID3D11Device::CreatePixelShader() failed for sharpening shader: %x",
+                     hr);
+        return false;
+    }
+
+    // Full-screen quad in the same layout used by the video vertex buffer
+    VERTEX verts[] =
+    {
+        {-1.0f, -1.0f, 0.0f, 1.0f},
+        {-1.0f,  1.0f, 0.0f, 0.0f},
+        { 1.0f, -1.0f, 1.0f, 1.0f},
+        { 1.0f,  1.0f, 1.0f, 0.0f},
+    };
+
+    D3D11_BUFFER_DESC vbDesc = {};
+    vbDesc.ByteWidth = sizeof(verts);
+    vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
+    vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    vbDesc.StructureByteStride = sizeof(VERTEX);
+
+    D3D11_SUBRESOURCE_DATA vbData = {};
+    vbData.pSysMem = verts;
+
+    hr = m_RenderDevice->CreateBuffer(&vbDesc, &vbData, &m_SharpenVertexBuffer);
+    if (FAILED(hr)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "ID3D11Device::CreateBuffer() failed for sharpening quad: %x",
+                     hr);
+        return false;
+    }
+
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                "FSR RCAS sharpening enabled (strength: %s)",
+                strength);
+    return true;
+}
+
+bool D3D11VARenderer::setupSharpenResources()
+{
+    HRESULT hr;
+
+    // Match the back buffer format so SDR and HDR (10-bit) output both work
+    ComPtr<ID3D11Texture2D> backBuffer;
+    hr = m_SwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
+    if (FAILED(hr)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "IDXGISwapChain::GetBuffer() failed: %x",
+                     hr);
+        return false;
+    }
+
+    D3D11_TEXTURE2D_DESC backBufferDesc;
+    backBuffer->GetDesc(&backBufferDesc);
+
+    D3D11_TEXTURE2D_DESC texDesc = {};
+    texDesc.Width = m_DisplayWidth;
+    texDesc.Height = m_DisplayHeight;
+    texDesc.MipLevels = 1;
+    texDesc.ArraySize = 1;
+    texDesc.Format = backBufferDesc.Format;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.Usage = D3D11_USAGE_DEFAULT;
+    texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+
+    hr = m_RenderDevice->CreateTexture2D(&texDesc, nullptr, &m_SharpenTexture);
+    if (FAILED(hr)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "ID3D11Device::CreateTexture2D() failed for sharpening texture: %x",
+                     hr);
+        return false;
+    }
+
+    hr = m_RenderDevice->CreateRenderTargetView(m_SharpenTexture.Get(), nullptr, &m_SharpenRenderTargetView);
+    if (FAILED(hr)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "ID3D11Device::CreateRenderTargetView() failed for sharpening texture: %x",
+                     hr);
+        return false;
+    }
+
+    hr = m_RenderDevice->CreateShaderResourceView(m_SharpenTexture.Get(), nullptr, &m_SharpenResourceView);
+    if (FAILED(hr)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "ID3D11Device::CreateShaderResourceView() failed for sharpening texture: %x",
+                     hr);
+        return false;
+    }
+
+    return true;
+}
+
+void D3D11VARenderer::renderSharpenPass()
+{
+    UINT stride = sizeof(VERTEX);
+    UINT offset = 0;
+    m_RenderDeviceContext->IASetVertexBuffers(0, 1, m_SharpenVertexBuffer.GetAddressOf(), &stride, &offset);
+
+    m_RenderDeviceContext->PSSetShader(m_SharpenPixelShader.Get(), nullptr, 0);
+    m_RenderDeviceContext->PSSetShaderResources(0, 1, m_SharpenResourceView.GetAddressOf());
+
+    m_RenderDeviceContext->DrawIndexed(6, 0, 0);
+
+    // Unbind the SRV so the texture can be bound as a render target next frame
+    ID3D11ShaderResourceView* nullSrv = nullptr;
+    m_RenderDeviceContext->PSSetShaderResources(0, 1, &nullSrv);
 }
 
 // NB: This can be called more than once (and with different frame dimensions!)

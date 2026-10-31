@@ -871,6 +871,56 @@ Flickable {
                                     :
                                       qsTr("HDR streaming is not supported on this PC.")
                 }
+
+                CheckBox {
+                    id: videoSharpeningCheck
+                    width: parent.width
+                    hoverEnabled: true
+                    text: qsTr("Sharpen video (AMD FSR RCAS)")
+                    font.pointSize: 12
+                    checked: StreamingPreferences.videoSharpening
+                    onCheckedChanged: {
+                        StreamingPreferences.videoSharpening = checked
+                    }
+
+                    ToolTip.delay: 1000
+                    ToolTip.timeout: 8000
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Restores detail that is softened by video compression, with negligible added latency.") + "\n\n" +
+                                  qsTr("Supported by the Direct3D 11 renderer on Windows and the Vulkan renderer on Linux and macOS. On Linux, enabling this prefers the Vulkan renderer.")
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 5
+                    visible: videoSharpeningCheck.checked
+
+                    Label {
+                        text: qsTr("Strength:")
+                        font.pointSize: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Slider {
+                        id: videoSharpnessSlider
+                        from: 5
+                        to: 100
+                        stepSize: 5
+                        snapMode: "SnapOnRelease"
+                        width: Math.min(300, parent.width - 150)
+                        value: StreamingPreferences.videoSharpness
+
+                        onValueChanged: {
+                            StreamingPreferences.videoSharpness = value
+                        }
+                    }
+
+                    Label {
+                        text: qsTr("%1%").arg(videoSharpnessSlider.value)
+                        font.pointSize: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
             }
         }
 

@@ -413,7 +413,9 @@ bool FFmpegVideoDecoder::createFrontendRenderer(PDECODER_PARAMETERS params, bool
         else
         {
 #ifdef HAVE_LIBPLACEBO_VULKAN
-            if (qgetenv("PREFER_VULKAN") == "1") {
+            // Sharpening is only implemented in the Vulkan renderer on this path,
+            // so prefer it (when it's not known to be slow) if sharpening is enabled.
+            if (qgetenv("PREFER_VULKAN") == "1" || (params->sharpness > 0 && !vulkanIsSlow)) {
                 m_FrontendRenderer = new PlVkRenderer(AV_HWDEVICE_TYPE_NONE, m_BackendRenderer);
                 if (initializeRendererInternal(m_FrontendRenderer, params)) {
                     return true;

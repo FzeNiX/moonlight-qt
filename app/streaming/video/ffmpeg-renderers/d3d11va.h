@@ -45,6 +45,9 @@ private:
     bool setupVideoTexture(AVHWFramesContext* framesContext); // for !m_BindDecoderOutputTextures
     bool setupTexturePoolViews(AVHWFramesContext* framesContext); // for m_BindDecoderOutputTextures
     void renderOverlay(Overlay::OverlayType type);
+    bool createSharpenPixelShader();
+    bool setupSharpenResources();
+    void renderSharpenPass();
     bool createOverlayVertexBuffer(Overlay::OverlayType type, int width, int height, Microsoft::WRL::ComPtr<ID3D11Buffer>& newVertexBuffer);
     void bindColorConversion(bool frameChanged, AVFrame* frame);
     void bindVideoVertexBuffer(bool frameChanged, AVFrame* frame);
@@ -108,6 +111,15 @@ private:
     std::array<Microsoft::WRL::ComPtr<ID3D11Texture2D>, Overlay::OverlayMax> m_OverlayTextures;
     std::array<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>, Overlay::OverlayMax> m_OverlayTextureResourceViews;
     Microsoft::WRL::ComPtr<ID3D11PixelShader> m_OverlayPixelShader;
+
+    // FSR RCAS sharpening state (only used if sharpening is enabled).
+    // Video is rendered into m_SharpenTexture, which is then sharpened
+    // into the back buffer by a full-screen pass before overlays are drawn.
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> m_SharpenPixelShader;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> m_SharpenVertexBuffer;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> m_SharpenTexture;
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> m_SharpenRenderTargetView;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_SharpenResourceView;
 
     AVBufferRef* m_HwDeviceContext;
 };

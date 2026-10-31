@@ -159,6 +159,8 @@ public:
     Q_PROPERTY(bool showPerformanceOverlay MEMBER showPerformanceOverlay NOTIFY showPerformanceOverlayChanged)
     Q_PROPERTY(PerformanceOverlayMode performanceOverlayMode MEMBER performanceOverlayMode NOTIFY performanceOverlayModeChanged)
     Q_PROPERTY(PerformanceOverlayPosition performanceOverlayPosition MEMBER performanceOverlayPosition NOTIFY performanceOverlayPositionChanged)
+    Q_PROPERTY(bool videoSharpening MEMBER videoSharpening NOTIFY videoSharpeningChanged)
+    Q_PROPERTY(int videoSharpness MEMBER videoSharpness NOTIFY videoSharpnessChanged)
     Q_PROPERTY(AudioConfig audioConfig MEMBER audioConfig NOTIFY audioConfigChanged)
     Q_PROPERTY(VideoCodecConfig videoCodecConfig MEMBER videoCodecConfig NOTIFY videoCodecConfigChanged)
     Q_PROPERTY(bool enableHdr MEMBER enableHdr NOTIFY enableHdrChanged)
@@ -203,6 +205,8 @@ public:
     bool showPerformanceOverlay;
     PerformanceOverlayMode performanceOverlayMode;
     PerformanceOverlayPosition performanceOverlayPosition;
+    bool videoSharpening;
+    int videoSharpness; // 0-100
     bool swapMouseButtons;
     bool muteOnFocusLoss;
     bool backgroundGamepad;
@@ -252,6 +256,8 @@ signals:
     void showPerformanceOverlayChanged();
     void performanceOverlayModeChanged();
     void performanceOverlayPositionChanged();
+    void videoSharpeningChanged();
+    void videoSharpnessChanged();
     void mouseButtonsChanged();
     void muteOnFocusLossChanged();
     void backgroundGamepadChanged();

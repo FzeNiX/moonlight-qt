@@ -174,6 +174,8 @@ PlVkRenderer::~PlVkRenderer()
         for (int i = 0; i < (int)SDL_arraysize(m_Textures); i++) {
             pl_tex_destroy(m_Vulkan->gpu, &m_Textures[i]);
         }
+
+        pl_mpv_user_shader_destroy(&m_SharpenHook);
     }
 
     {
@@ -423,6 +425,58 @@ bool PlVkRenderer::isExtensionSupportedByPhysicalDevice(VkPhysicalDevice device,
         return false; \
     }
 
+bool PlVkRenderer::createSharpenHook(float sharpness)
+{
+    // AMD FidelityFX Super Resolution 1.0 Robust Contrast Adaptive Sharpening (RCAS)
+    // Adapted from ffx_fsr1.h - Copyright (c) 2021 Advanced Micro Devices, Inc. (MIT license)
+    //
+    // This runs at the OUTPUT stage, after scaling and color management, so it sharpens
+    // the image exactly as it will be displayed (and only within the video area).
+    static const char k_RcasShaderTemplate[] =
+        "//!HOOK OUTPUT\n"
+        "//!BIND HOOKED\n"
+        "//!DESC Moonlight FSR RCAS sharpening\n"
+        "\n"
+        "#define RCAS_STRENGTH %.3f\n"
+        "#define RCAS_LIMIT (0.25 - (1.0 / 16.0))\n"
+        "\n"
+        "vec4 hook() {\n"
+        "    vec4 e4 = HOOKED_texOff(vec2( 0.0,  0.0));\n"
+        "    vec3 e = e4.rgb;\n"
+        "    vec3 b = HOOKED_texOff(vec2( 0.0, -1.0)).rgb;\n"
+        "    vec3 d = HOOKED_texOff(vec2(-1.0,  0.0)).rgb;\n"
+        "    vec3 f = HOOKED_texOff(vec2( 1.0,  0.0)).rgb;\n"
+        "    vec3 h = HOOKED_texOff(vec2( 0.0,  1.0)).rgb;\n"
+        "\n"
+        "    vec3 mn4 = min(min(b, d), min(f, h));\n"
+        "    vec3 mx4 = max(max(b, d), max(f, h));\n"
+        "\n"
+        "    // Limit the sharpening lobe so the output never clips (no ringing)\n"
+        "    vec3 hitMin = min(mn4, e) / max(4.0 * mx4, vec3(1e-5));\n"
+        "    vec3 hitMax = (1.0 - max(mx4, e)) / min(4.0 * mn4 - 4.0, vec3(-1e-5));\n"
+        "    vec3 lobeRGB = max(-hitMin, hitMax);\n"
+        "    float lobe = max(-RCAS_LIMIT, min(max(lobeRGB.r, max(lobeRGB.g, lobeRGB.b)), 0.0)) * RCAS_STRENGTH;\n"
+        "\n"
+        "    vec3 c = (lobe * (b + d + f + h) + e) / (4.0 * lobe + 1.0);\n"
+        "    return vec4(clamp(c, 0.0, 1.0), e4.a);\n"
+        "}\n";
+
+    char shaderText[sizeof(k_RcasShaderTemplate) + 32];
+    SDL_snprintf(shaderText, sizeof(shaderText), k_RcasShaderTemplate, SDL_min(1.0f, SDL_max(0.0f, sharpness)));
+
+    m_SharpenHook = pl_mpv_user_shader_parse(m_Vulkan->gpu, shaderText, SDL_strlen(shaderText));
+    if (m_SharpenHook == nullptr) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "Failed to create FSR RCAS sharpening shader");
+        return false;
+    }
+
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                "FSR RCAS sharpening enabled (strength: %.2f)",
+                sharpness);
+    return true;
+}
+
 bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
 {
     m_Window = params->window;
@@ -541,6 +595,15 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "pl_renderer_create() failed");
         return false;
+    }
+
+    m_RenderParams = pl_render_fast_params;
+    if (params->sharpness > 0 && !params->testOnly) {
+        // Sharpening is optional, so failure here is not fatal
+        if (createSharpenHook(params->sharpness)) {
+            m_RenderParams.hooks = &m_SharpenHook;
+            m_RenderParams.num_hooks = 1;
+        }
     }
 
 #ifdef PLVK_USE_EARLY_RENDER_TO_WAIT
@@ -1089,7 +1152,7 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
     // Render the video image and overlays into the swapchain buffer
     targetFrame.num_overlays = (int)overlays.size();
     targetFrame.overlays = overlays.data();
-    if (!pl_render_image(m_Renderer, &mappedFrame, &targetFrame, &pl_render_fast_params)) {
+    if (!pl_render_image(m_Renderer, &mappedFrame, &targetFrame, &m_RenderParams)) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "pl_render_image() failed");
         // NB: We must fallthrough to call pl_swapchain_submit_frame()

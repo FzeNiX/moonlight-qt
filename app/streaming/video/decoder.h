@@ -45,6 +45,10 @@ typedef struct _DECODER_PARAMETERS {
     bool enableVsync;
     bool enableFramePacing;
     bool testOnly;
+
+    // FSR RCAS sharpening strength in [0, 1], or 0 to disable sharpening.
+    // Only honored by renderers with a shader-based presentation path.
+    float sharpness;
 } DECODER_PARAMETERS, *PDECODER_PARAMETERS;
 
 #define WINDOW_STATE_CHANGE_SIZE 0x01

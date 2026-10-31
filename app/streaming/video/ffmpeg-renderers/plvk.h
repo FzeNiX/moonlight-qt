@@ -8,6 +8,7 @@
 
 #include <libplacebo/log.h>
 #include <libplacebo/renderer.h>
+#include <libplacebo/shaders/custom.h>
 #include <libplacebo/vulkan.h>
 
 #ifdef Q_OS_DARWIN
@@ -67,6 +68,7 @@ private:
     bool mapAvFrameToPlacebo(const AVFrame *frame, pl_frame* mappedFrame);
     void unmapAvFrameFromPlacebo(const AVFrame *frame, pl_frame* mappedFrame);
     bool populateQueues(int videoFormat);
+    bool createSharpenHook(float sharpness);
     bool chooseVulkanDevice(PDECODER_PARAMETERS params, bool hdrOutputRequired);
     bool tryInitializeDevice(VkPhysicalDevice device, VkPhysicalDeviceProperties* deviceProps,
                              PDECODER_PARAMETERS decoderParams, bool hdrOutputRequired);
@@ -103,6 +105,8 @@ private:
     pl_vulkan m_Vulkan = nullptr;
     pl_swapchain m_Swapchain = nullptr;
     pl_renderer m_Renderer = nullptr;
+    pl_render_params m_RenderParams = {};
+    const pl_hook* m_SharpenHook = nullptr;
     pl_tex m_Textures[PL_MAX_PLANES] = {};
     pl_color_space m_LastColorspace = {};
 

@@ -295,6 +295,10 @@ bool Session::chooseDecoder(StreamingPreferences::VideoDecoderSelection vds,
     params.enableVsync = enableVsync;
     params.enableFramePacing = enableFramePacing;
     params.testOnly = testOnly;
+    params.sharpness = 0.0f;
+    if (!testOnly && s_ActiveSession != nullptr && s_ActiveSession->m_Preferences->videoSharpening) {
+        params.sharpness = s_ActiveSession->m_Preferences->videoSharpness / 100.0f;
+    }
     params.vds = vds;
     params.renderer = renderer;
 

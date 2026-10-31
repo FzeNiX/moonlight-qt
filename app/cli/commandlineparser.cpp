@@ -377,6 +377,8 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
     parser.addToggleOption("performance-overlay", "show performance overlay");
     parser.addChoiceOption("performance-overlay-mode", "performance overlay layout", m_PerfOverlayModeMap.keys());
     parser.addChoiceOption("performance-overlay-position", "performance overlay position", m_PerfOverlayPositionMap.keys());
+    parser.addToggleOption("video-sharpening", "FSR RCAS video sharpening");
+    parser.addValueOption("video-sharpness", "video sharpening strength (0-100)");
     parser.addToggleOption("hdr", "HDR streaming");
     parser.addToggleOption("yuv444", "YUV 4:4:4 sampling, if supported");
     parser.addChoiceOption("capture-system-keys", "capture system key combos", m_CaptureSysKeysModeMap.keys());
@@ -504,6 +506,18 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
     // Resolve --performance-overlay-position option
     if (parser.isSet("performance-overlay-position")) {
         preferences->performanceOverlayPosition = mapValue(m_PerfOverlayPositionMap, parser.getChoiceOptionValue("performance-overlay-position"));
+    }
+
+    // Resolve --video-sharpening and --no-video-sharpening options
+    preferences->videoSharpening = parser.getToggleOptionValue("video-sharpening", preferences->videoSharpening);
+
+    // Resolve --video-sharpness option
+    if (parser.isSet("video-sharpness")) {
+        int sharpness = parser.getIntOption("video-sharpness");
+        if (!inRange(sharpness, 0, 100)) {
+            parser.showError("Video sharpness must be between 0 and 100");
+        }
+        preferences->videoSharpness = sharpness;
     }
 
     // Resolve --hdr and --no-hdr options

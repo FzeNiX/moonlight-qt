@@ -45,6 +45,8 @@
 #define SER_SHOWPERFOVERLAY "showperfoverlay"
 #define SER_PERFOVERLAYMODE "perfoverlaymode"
 #define SER_PERFOVERLAYPOS "perfoverlaypos"
+#define SER_VIDEOSHARPENING "videosharpening"
+#define SER_VIDEOSHARPNESS "videosharpness"
 #define SER_SWAPMOUSEBUTTONS "swapmousebuttons"
 #define SER_MUTEONFOCUSLOSS "muteonfocusloss"
 #define SER_BACKGROUNDGAMEPAD "backgroundgamepad"
@@ -150,6 +152,8 @@ void StreamingPreferences::reload()
                                                                  static_cast<int>(PerformanceOverlayMode::POM_FULL)).toInt());
     performanceOverlayPosition = static_cast<PerformanceOverlayPosition>(settings.value(SER_PERFOVERLAYPOS,
                                                                          static_cast<int>(PerformanceOverlayPosition::POP_TOP_LEFT)).toInt());
+    videoSharpening = settings.value(SER_VIDEOSHARPENING, false).toBool();
+    videoSharpness = qBound(0, settings.value(SER_VIDEOSHARPNESS, 50).toInt(), 100);
     packetSize = settings.value(SER_PACKETSIZE, 0).toInt();
     swapMouseButtons = settings.value(SER_SWAPMOUSEBUTTONS, false).toBool();
     muteOnFocusLoss = settings.value(SER_MUTEONFOCUSLOSS, false).toBool();
@@ -353,6 +357,8 @@ void StreamingPreferences::save()
     settings.setValue(SER_SHOWPERFOVERLAY, showPerformanceOverlay);
     settings.setValue(SER_PERFOVERLAYMODE, static_cast<int>(performanceOverlayMode));
     settings.setValue(SER_PERFOVERLAYPOS, static_cast<int>(performanceOverlayPosition));
+    settings.setValue(SER_VIDEOSHARPENING, videoSharpening);
+    settings.setValue(SER_VIDEOSHARPNESS, videoSharpness);
     settings.setValue(SER_AUDIOCFG, static_cast<int>(audioConfig));
     settings.setValue(SER_HDR, enableHdr);
     settings.setValue(SER_YUV444, enableYUV444);

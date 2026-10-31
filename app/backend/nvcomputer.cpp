@@ -22,12 +22,16 @@
 #define SER_SRVCERT "srvcert"
 #define SER_CUSTOMNAME "customname"
 #define SER_NVIDIASOFTWARE "nvidiasw"
+#define SER_PREFERREDADDR "preferredaddress"
 
 NvComputer::NvComputer(QSettings& settings)
 {
     this->name = settings.value(SER_NAME).toString();
     this->uuid = settings.value(SER_UUID).toString();
     this->hasCustomName = settings.value(SER_CUSTOMNAME).toBool();
+    this->preferredAddressType = (PreferredAddressType)qBound((int)PA_AUTO,
+                                                              settings.value(SER_PREFERREDADDR, (int)PA_AUTO).toInt(),
+                                                              (int)PA_MAX - 1);
     this->macAddress = settings.value(SER_MAC).toByteArray();
     this->localAddress = NvAddress(settings.value(SER_LOCALADDR).toString(),
                                    settings.value(SER_LOCALPORT, QVariant(DEFAULT_HTTP_PORT)).toUInt());
@@ -80,6 +84,7 @@ void NvComputer::serialize(QSettings& settings, bool serializeApps) const
 
     settings.setValue(SER_NAME, name);
     settings.setValue(SER_CUSTOMNAME, hasCustomName);
+    settings.setValue(SER_PREFERREDADDR, (int)preferredAddressType);
     settings.setValue(SER_UUID, uuid);
     settings.setValue(SER_MAC, macAddress);
     settings.setValue(SER_LOCALADDR, localAddress.address());
@@ -109,6 +114,7 @@ bool NvComputer::isEqualSerialized(const NvComputer &that) const
 {
     return this->name == that.name &&
            this->hasCustomName == that.hasCustomName &&
+           this->preferredAddressType == that.preferredAddressType &&
            this->uuid == that.uuid &&
            this->macAddress == that.macAddress &&
            this->localAddress == that.localAddress &&
@@ -482,10 +488,32 @@ bool NvComputer::updateAppList(QVector<NvApp> newAppList) {
     return true;
 }
 
+NvAddress NvComputer::getPreferredAddress() const
+{
+    // Caller must hold the lock
+    switch (preferredAddressType) {
+    case PA_LOCAL:
+        return localAddress;
+    case PA_REMOTE:
+        return remoteAddress;
+    case PA_IPV6:
+        return ipv6Address;
+    case PA_MANUAL:
+        return manualAddress;
+    case PA_AUTO:
+    default:
+        return NvAddress();
+    }
+}
+
 QVector<NvAddress> NvComputer::uniqueAddresses() const
 {
     QReadLocker readLocker(&lock);
     QVector<NvAddress> uniqueAddressList;
+
+    // The user's preferred address (if any) is always tried first. If it is
+    // unreachable, we fall back to the normal order below.
+    uniqueAddressList.append(getPreferredAddress());
 
     // Start with addresses correctly ordered
     uniqueAddressList.append(activeAddress);

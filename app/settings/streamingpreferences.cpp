@@ -6,6 +6,7 @@
 #include <QCoreApplication>
 #include <QLocale>
 #include <QReadWriteLock>
+#include <QMetaProperty>
 #include <QtMath>
 
 #include <QtDebug>
@@ -70,6 +71,28 @@ StreamingPreferences::StreamingPreferences(QQmlEngine *qmlEngine)
     : m_QmlEngine(qmlEngine)
 {
     reload();
+}
+
+StreamingPreferences::StreamingPreferences(const StreamingPreferences* source)
+    : m_QmlEngine(nullptr)
+{
+    // Copy every writable Q_PROPERTY (which covers nearly all preferences)
+    const QMetaObject* mo = metaObject();
+    for (int i = QObject::staticMetaObject.propertyCount(); i < mo->propertyCount(); i++) {
+        QMetaProperty prop = mo->property(i);
+        if (prop.isWritable()) {
+            prop.write(this, prop.read(source));
+        }
+    }
+
+    // Members that aren't writable properties
+    packetSize = source->packetSize;
+    recommendedFullScreenMode = source->recommendedFullScreenMode;
+}
+
+StreamingPreferences* StreamingPreferences::createCopy(const StreamingPreferences* source)
+{
+    return new StreamingPreferences(source);
 }
 
 StreamingPreferences* StreamingPreferences::get(QQmlEngine *qmlEngine)

@@ -43,6 +43,13 @@ public:
 
     Q_INVOKABLE void renameComputer(int computerIndex, QString name);
 
+    // Per-host connection and stream settings (see settings/hostprofile.h)
+    Q_INVOKABLE QVariantMap getHostSettings(int computerIndex);
+
+    Q_INVOKABLE void setPreferredAddress(int computerIndex, int addressType);
+
+    Q_INVOKABLE void setHostProfile(int computerIndex, bool enabled, QVariantMap profile);
+
     Q_INVOKABLE Session* createSessionForCurrentGame(int computerIndex);
 
 signals:

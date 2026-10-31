@@ -63,6 +63,22 @@ public:
     ReachabilityType
     getActiveAddressReachability() const;
 
+    // Which known address to try first when connecting. This is a client-side
+    // setting that persists across polls (like a custom name).
+    enum PreferredAddressType
+    {
+        PA_AUTO,    // Default order: last working, local, remote, IPv6, manual
+        PA_LOCAL,
+        PA_REMOTE,
+        PA_IPV6,
+        PA_MANUAL,
+        PA_MAX
+    };
+
+    // Returns a null address if there is no preference or that address is unknown
+    NvAddress
+    getPreferredAddress() const;
+
     QVector<NvAddress>
     uniqueAddresses() const;
 
@@ -109,6 +125,7 @@ public:
     QByteArray macAddress;
     QString name;
     bool hasCustomName;
+    PreferredAddressType preferredAddressType = PA_AUTO;
     QString uuid;
     QSslCertificate serverCert;
     QVector<NvApp> appList;

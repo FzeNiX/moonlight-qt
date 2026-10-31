@@ -243,7 +243,11 @@ private:
     static
     int drSubmitDecodeUnit(PDECODE_UNIT du);
 
+    static
+    StreamingPreferences* createSessionPreferences(NvComputer* computer, StreamingPreferences* preferences);
+
     StreamingPreferences* m_Preferences;
+    bool m_OwnsPreferences;
     bool m_IsFullScreen;
     SupportedVideoFormatList m_SupportedVideoFormats; // Sorted in order of descending priority
     STREAM_CONFIGURATION m_StreamConfig;

@@ -194,6 +194,10 @@ CenteredGridView {
                 }
 
                 NavigableMenuItem {
+                    text: qsTr("PC Settings")
+                    onTriggered: hostSettingsDialog.openForPc(index)
+                }
+                NavigableMenuItem {
                     text: qsTr("Rename PC")
                     onTriggered: {
                         renamePcDialog.pcIndex = index
@@ -390,6 +394,10 @@ CenteredGridView {
                 }
             }
         }
+    }
+
+    HostSettingsDialog {
+        id: hostSettingsDialog
     }
 
     NavigableMessageDialog {

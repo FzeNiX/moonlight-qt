@@ -557,6 +557,19 @@ void ComputerManager::renameHost(NvComputer* computer, QString name)
     handleComputerStateChanged(computer);
 }
 
+void ComputerManager::setPreferredAddress(NvComputer* computer, NvComputer::PreferredAddressType type)
+{
+    {
+        QWriteLocker lock(&computer->lock);
+
+        computer->preferredAddressType = type;
+    }
+
+    // The poller picks up the new order on its next pass (every few seconds).
+    // Notify the UI and persist the change.
+    handleComputerStateChanged(computer);
+}
+
 void ComputerManager::clientSideAttributeUpdated(NvComputer* computer)
 {
     // Notify the UI of the state change

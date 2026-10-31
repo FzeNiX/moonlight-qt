@@ -1,5 +1,6 @@
 #include "session.h"
 #include "settings/streamingpreferences.h"
+#include "settings/hostprofile.h"
 #include "streaming/streamutils.h"
 #include "backend/richpresencemanager.h"
 
@@ -575,8 +576,27 @@ bool Session::populateDecoderProperties(SDL_Window* window)
     return true;
 }
 
+StreamingPreferences* Session::createSessionPreferences(NvComputer* computer, StreamingPreferences* preferences)
+{
+    // Callers that pass explicit preferences (the CLI) have already applied
+    // their own overrides, so host profiles only apply to the global preferences.
+    if (preferences != nullptr) {
+        return preferences;
+    }
+
+    QString uuid;
+    {
+        QReadLocker lock(&computer->lock);
+        uuid = computer->uuid;
+    }
+
+    StreamingPreferences* hostPrefs = HostProfile::createPreferencesForHost(StreamingPreferences::get(), uuid);
+    return hostPrefs ? hostPrefs : StreamingPreferences::get();
+}
+
 Session::Session(NvComputer* computer, NvApp& app, StreamingPreferences *preferences)
-    : m_Preferences(preferences ? preferences : StreamingPreferences::get()),
+    : m_Preferences(createSessionPreferences(computer, preferences)),
+      m_OwnsPreferences(m_Preferences != StreamingPreferences::get() && m_Preferences != preferences),
       m_IsFullScreen(m_Preferences->windowMode != StreamingPreferences::WM_WINDOWED || !WMUtils::isRunningDesktopEnvironment()),
       m_Computer(computer),
       m_App(app),
@@ -605,6 +625,11 @@ Session::~Session()
     // Use Session::exec() or DeferredSessionCleanupTask instead.
 
     SDL_DestroyMutex(m_DecoderLock);
+
+    // Per-host preferences are a private copy owned by this session
+    if (m_OwnsPreferences) {
+        delete m_Preferences;
+    }
 }
 
 bool Session::initialize(QQuickWindow* qtWindow)

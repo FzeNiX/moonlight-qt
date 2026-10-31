@@ -1,4 +1,5 @@
 #include "computermodel.h"
+#include "settings/hostprofile.h"
 
 #include <QThreadPool>
 
@@ -138,6 +139,12 @@ void ComputerModel::deleteComputer(int computerIndex)
 {
     Q_ASSERT(computerIndex < m_Computers.count());
 
+    // Drop this host's profile too, so a re-added host starts from the global settings
+    {
+        QReadLocker lock(&m_Computers[computerIndex]->lock);
+        HostProfile::remove(m_Computers[computerIndex]->uuid);
+    }
+
     beginRemoveRows(QModelIndex(), computerIndex, computerIndex);
 
     // m_Computer[computerIndex] will be deleted by this call
@@ -177,6 +184,57 @@ void ComputerModel::renameComputer(int computerIndex, QString name)
     Q_ASSERT(computerIndex < m_Computers.count());
 
     m_ComputerManager->renameHost(m_Computers[computerIndex], name);
+}
+
+QVariantMap ComputerModel::getHostSettings(int computerIndex)
+{
+    Q_ASSERT(computerIndex < m_Computers.count());
+
+    NvComputer* computer = m_Computers[computerIndex];
+    QVariantMap result;
+    QString uuid;
+
+    {
+        QReadLocker lock(&computer->lock);
+
+        uuid = computer->uuid;
+        result["name"] = computer->name;
+        result["preferredAddress"] = (int)computer->preferredAddressType;
+        result["activeAddress"] = computer->activeAddress.isNull() ? QString() : computer->activeAddress.toString();
+        result["localAddress"] = computer->localAddress.isNull() ? QString() : computer->localAddress.toString();
+        result["remoteAddress"] = computer->remoteAddress.isNull() ? QString() : computer->remoteAddress.toString();
+        result["ipv6Address"] = computer->ipv6Address.isNull() ? QString() : computer->ipv6Address.toString();
+        result["manualAddress"] = computer->manualAddress.isNull() ? QString() : computer->manualAddress.toString();
+    }
+
+    result["profileEnabled"] = HostProfile::isEnabled(uuid);
+    result["profile"] = HostProfile::load(uuid);
+    return result;
+}
+
+void ComputerModel::setPreferredAddress(int computerIndex, int addressType)
+{
+    Q_ASSERT(computerIndex < m_Computers.count());
+
+    if (addressType < NvComputer::PA_AUTO || addressType >= NvComputer::PA_MAX) {
+        Q_ASSERT(false);
+        return;
+    }
+
+    m_ComputerManager->setPreferredAddress(m_Computers[computerIndex], (NvComputer::PreferredAddressType)addressType);
+}
+
+void ComputerModel::setHostProfile(int computerIndex, bool enabled, QVariantMap profile)
+{
+    Q_ASSERT(computerIndex < m_Computers.count());
+
+    QString uuid;
+    {
+        QReadLocker lock(&m_Computers[computerIndex]->lock);
+        uuid = m_Computers[computerIndex]->uuid;
+    }
+
+    HostProfile::save(uuid, enabled, profile);
 }
 
 QString ComputerModel::generatePinString()

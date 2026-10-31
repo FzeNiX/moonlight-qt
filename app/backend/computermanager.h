@@ -242,6 +242,9 @@ public:
 
     void renameHost(NvComputer* computer, QString name);
 
+
+    void setPreferredAddress(NvComputer* computer, NvComputer::PreferredAddressType type);
+
     void clientSideAttributeUpdated(NvComputer* computer);
 
 signals:

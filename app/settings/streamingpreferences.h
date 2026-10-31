@@ -11,6 +11,10 @@ class StreamingPreferences : public QObject
 public:
     static StreamingPreferences* get(QQmlEngine *qmlEngine = nullptr);
 
+    // Creates an independent copy (owned by the caller) that is not saved or
+    // shared with the UI. Used to apply per-host overrides for a single stream.
+    static StreamingPreferences* createCopy(const StreamingPreferences* source);
+
     Q_INVOKABLE static int
     getDefaultBitrate(int width, int height, int fps, bool yuv444);
 
@@ -277,6 +281,7 @@ signals:
 
 private:
     explicit StreamingPreferences(QQmlEngine *qmlEngine);
+    explicit StreamingPreferences(const StreamingPreferences* source);
 
     QString getSuffixFromLanguage(Language lang);
 

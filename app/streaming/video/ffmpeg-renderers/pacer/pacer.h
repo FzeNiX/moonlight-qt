@@ -73,6 +73,7 @@ private:
     IVsyncSource* m_VsyncSource;
     IFFmpegRenderer* m_VsyncRenderer;
     int m_MaxVideoFps;
+    uint64_t m_LastRenderTimeUs = 0;
     int m_DisplayFps;
     PVIDEO_STATS m_VideoStats;
     int m_RendererAttributes;

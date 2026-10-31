@@ -40,6 +40,10 @@ typedef struct _VIDEO_COLOR_ADJUSTMENTS {
     float saturation; // Chroma gain. 1.0 = neutral, 0.0 = grayscale
 } VIDEO_COLOR_ADJUSTMENTS;
 
+// Flags for IVideoDecoder::getVideoAdjustmentSupport()
+#define VIDEO_ADJUST_COLOR   0x1
+#define VIDEO_ADJUST_SHARPEN 0x2
+
 typedef struct _DECODER_PARAMETERS {
     SDL_Window* window;
     StreamingPreferences::VideoDecoderSelection vds;
@@ -91,4 +95,9 @@ public:
     virtual void renderFrameOnMainThread() = 0;
     virtual void setHdrMode(bool enabled) = 0;
     virtual bool notifyWindowChanged(PWINDOW_STATE_CHANGE_INFO info) = 0;
+
+    // Live video adjustments while streaming (see VIDEO_ADJUST_* flags).
+    // May be called from any thread.
+    virtual int getVideoAdjustmentSupport() { return 0; }
+    virtual void setVideoAdjustments(const VIDEO_COLOR_ADJUSTMENTS&, float) {}
 };

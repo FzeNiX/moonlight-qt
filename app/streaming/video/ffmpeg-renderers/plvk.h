@@ -41,6 +41,7 @@ public:
     PlVkRenderer(AVHWDeviceType hwDeviceType = AV_HWDEVICE_TYPE_NONE, IFFmpegRenderer *backendRenderer = nullptr);
     virtual ~PlVkRenderer() override;
     virtual bool initialize(PDECODER_PARAMETERS params) override;
+    virtual int getVideoAdjustmentSupport() override { return VIDEO_ADJUST_COLOR | VIDEO_ADJUST_SHARPEN; }
     virtual bool prepareDecoderContext(AVCodecContext* context, AVDictionary** options) override;
     virtual void renderFrame(AVFrame* frame) override;
     virtual bool testRenderFrame(AVFrame* frame) override;
@@ -69,6 +70,8 @@ private:
     void unmapAvFrameFromPlacebo(const AVFrame *frame, pl_frame* mappedFrame);
     bool populateQueues(int videoFormat);
     bool createSharpenHook(float sharpness);
+    void updateSharpness(float sharpness);
+    void applyPendingAdjustments();
     bool chooseVulkanDevice(PDECODER_PARAMETERS params, bool hdrOutputRequired);
     bool tryInitializeDevice(VkPhysicalDevice device, VkPhysicalDeviceProperties* deviceProps,
                              PDECODER_PARAMETERS decoderParams, bool hdrOutputRequired);
@@ -107,6 +110,7 @@ private:
     pl_renderer m_Renderer = nullptr;
     pl_render_params m_RenderParams = {};
     const pl_hook* m_SharpenHook = nullptr;
+    pl_var_data* m_SharpenStrength = nullptr; // Live-tunable shader parameter
     pl_color_adjustment m_ColorAdjustment = {};
     pl_tex m_Textures[PL_MAX_PLANES] = {};
     pl_color_space m_LastColorspace = {};

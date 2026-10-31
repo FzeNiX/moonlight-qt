@@ -227,6 +227,11 @@ public:
         return 0;
     }
 
+    // Which live video adjustments this renderer applies (VIDEO_ADJUST_* flags)
+    virtual int getVideoAdjustmentSupport() {
+        return 0;
+    }
+
     virtual int getRendererAttributes() {
         // No special attributes by default
         return 0;
@@ -453,8 +458,47 @@ public:
         }
     }
 
+    // Live video adjustments. These may be called from any thread (e.g. in
+    // response to a hotkey while streaming). Renderers pick up the new values
+    // on the render thread via applyPendingColorAdjustments() and
+    // takePendingSharpness().
     void setColorAdjustments(const VIDEO_COLOR_ADJUSTMENTS& adjustments) {
-        m_ColorAdjustments = adjustments;
+        SDL_AtomicLock(&m_AdjustmentLock);
+        m_PendingColorAdjustments = adjustments;
+        m_ColorAdjustmentsPending = true;
+        SDL_AtomicUnlock(&m_AdjustmentLock);
+    }
+
+    void setSharpness(float sharpness) {
+        SDL_AtomicLock(&m_AdjustmentLock);
+        m_PendingSharpness = sharpness;
+        m_SharpnessPending = true;
+        SDL_AtomicUnlock(&m_AdjustmentLock);
+    }
+
+    // Render thread only: makes pending color adjustments current.
+    // Returns true if they changed (so CSC constants must be recomputed).
+    bool applyPendingColorAdjustments() {
+        bool changed = false;
+        SDL_AtomicLock(&m_AdjustmentLock);
+        if (m_ColorAdjustmentsPending) {
+            changed = SDL_memcmp(&m_ColorAdjustments, &m_PendingColorAdjustments, sizeof(m_ColorAdjustments)) != 0;
+            m_ColorAdjustments = m_PendingColorAdjustments;
+            m_ColorAdjustmentsPending = false;
+        }
+        SDL_AtomicUnlock(&m_AdjustmentLock);
+        return changed;
+    }
+
+    // Render thread only: returns true and the new value if sharpness changed
+    bool takePendingSharpness(float& sharpness) {
+        bool pending;
+        SDL_AtomicLock(&m_AdjustmentLock);
+        pending = m_SharpnessPending;
+        sharpness = m_PendingSharpness;
+        m_SharpnessPending = false;
+        SDL_AtomicUnlock(&m_AdjustmentLock);
+        return pending;
     }
 
     bool hasColorAdjustments() {
@@ -584,9 +628,15 @@ public:
 
 protected:
     InitFailureReason m_InitFailureReason = InitFailureReason::Unknown;
-    VIDEO_COLOR_ADJUSTMENTS m_ColorAdjustments = { 0.0f, 1.0f, 1.0f };
+    VIDEO_COLOR_ADJUSTMENTS m_ColorAdjustments = { 0.0f, 1.0f, 1.0f }; // Render thread only
 
 private:
+    SDL_SpinLock m_AdjustmentLock = 0;
+    VIDEO_COLOR_ADJUSTMENTS m_PendingColorAdjustments = { 0.0f, 1.0f, 1.0f };
+    bool m_ColorAdjustmentsPending = false;
+    float m_PendingSharpness = 0.0f;
+    bool m_SharpnessPending = false;
+
     RendererType m_Type;
     SDL_mutex* m_RenderLock;
 

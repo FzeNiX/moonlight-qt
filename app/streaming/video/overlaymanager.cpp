@@ -4,10 +4,18 @@
 using namespace Overlay;
 
 OverlayManager::OverlayManager() :
+    m_DebugStatsEnabled(false),
+    m_NotificationLock(0),
+    m_NotificationTimer(0),
+    m_GraphLock(0),
+    m_GraphTargetFps(60),
     m_Renderer(nullptr),
     m_FontData(Path::readDataFile("ModeSeven.ttf"))
 {
     memset(m_Overlays, 0, sizeof(m_Overlays));
+    memset(m_GraphSamples, 0, sizeof(m_GraphSamples));
+    memset(m_GraphNext, 0, sizeof(m_GraphNext));
+    memset(m_GraphCount, 0, sizeof(m_GraphCount));
 
     // Near-white text on a translucent dark panel stays readable on both
     // bright and dark game content (unlike the old unpadded yellow text).
@@ -35,6 +43,10 @@ OverlayManager::OverlayManager() :
 
 OverlayManager::~OverlayManager()
 {
+    if (m_NotificationTimer != 0) {
+        SDL_RemoveTimer(m_NotificationTimer);
+    }
+
     for (int i = 0; i < OverlayType::OverlayMax; i++) {
         if (m_Overlays[i].surface != nullptr) {
             SDL_FreeSurface(m_Overlays[i].surface);
@@ -84,6 +96,121 @@ SDL_Surface* OverlayManager::getUpdatedOverlaySurface(OverlayType type)
     // If a new surface is available, return it. If not, return nullptr.
     // Caller must free the surface on success.
     return (SDL_Surface*)SDL_AtomicSetPtr((void**)&m_Overlays[type].surface, nullptr);
+}
+
+bool OverlayManager::isDebugStatsEnabled()
+{
+    return m_DebugStatsEnabled;
+}
+
+void OverlayManager::updateDebugVisibility()
+{
+    SDL_AtomicLock(&m_NotificationLock);
+    bool hasNotification = !m_NotificationText.isEmpty();
+    SDL_AtomicUnlock(&m_NotificationLock);
+
+    m_Overlays[OverlayDebug].enabled = m_DebugStatsEnabled || hasNotification;
+
+    // Always re-render since the content (if not the visibility) has changed
+    notifyOverlayUpdated(OverlayDebug);
+}
+
+Uint32 OverlayManager::notificationTimerCallback(Uint32, void* param)
+{
+    auto me = (OverlayManager*)param;
+
+    SDL_AtomicLock(&me->m_NotificationLock);
+    me->m_NotificationText.clear();
+    me->m_NotificationTimer = 0;
+    SDL_AtomicUnlock(&me->m_NotificationLock);
+
+    me->updateDebugVisibility();
+
+    // One-shot timer
+    return 0;
+}
+
+void OverlayManager::showDebugNotification(const QString& text, Uint32 durationMs)
+{
+    SDL_AtomicLock(&m_NotificationLock);
+    m_NotificationText = text;
+    SDL_TimerID oldTimer = m_NotificationTimer;
+    m_NotificationTimer = 0;
+    SDL_AtomicUnlock(&m_NotificationLock);
+
+    // Restart the hide timer (outside the lock, since the callback takes it)
+    if (oldTimer != 0) {
+        SDL_RemoveTimer(oldTimer);
+    }
+    SDL_TimerID newTimer = SDL_AddTimer(durationMs, notificationTimerCallback, this);
+
+    SDL_AtomicLock(&m_NotificationLock);
+    if (m_NotificationText == text) {
+        m_NotificationTimer = newTimer;
+    }
+    SDL_AtomicUnlock(&m_NotificationLock);
+
+    updateDebugVisibility();
+}
+
+QByteArray OverlayManager::composeDebugText()
+{
+    SDL_AtomicLock(&m_NotificationLock);
+    QByteArray composed = m_NotificationText.toUtf8();
+    SDL_AtomicUnlock(&m_NotificationLock);
+
+    if (m_DebugStatsEnabled && m_Overlays[OverlayDebug].text[0] != 0) {
+        if (!composed.isEmpty()) {
+            composed += "\n\n";
+        }
+        composed += m_Overlays[OverlayDebug].text;
+    }
+
+    return composed;
+}
+
+QString OverlayManager::getOverlayDisplayText(OverlayType type)
+{
+    if (type == OverlayDebug) {
+        return QString::fromUtf8(composeDebugText());
+    }
+    return QString::fromUtf8(m_Overlays[type].text);
+}
+
+void OverlayManager::addFrameGraphSample(FrameGraphSeries series, float intervalMs)
+{
+    SDL_AtomicLock(&m_GraphLock);
+    m_GraphSamples[series][m_GraphNext[series]] = intervalMs;
+    m_GraphNext[series] = (m_GraphNext[series] + 1) % k_FrameGraphSamples;
+    m_GraphCount[series] = SDL_min(m_GraphCount[series] + 1, k_FrameGraphSamples);
+    SDL_AtomicUnlock(&m_GraphLock);
+}
+
+void OverlayManager::setFrameGraphTargetFps(int fps)
+{
+    SDL_AtomicLock(&m_GraphLock);
+    m_GraphTargetFps = fps > 0 ? fps : 60;
+    SDL_AtomicUnlock(&m_GraphLock);
+}
+
+bool OverlayManager::takeFrameGraphSnapshot(FrameGraphSnapshot& snapshot)
+{
+    bool hasSamples = false;
+
+    SDL_AtomicLock(&m_GraphLock);
+    for (int s = 0; s < FrameGraphSeriesMax; s++) {
+        int count = m_GraphCount[s];
+        int start = (m_GraphNext[s] - count + k_FrameGraphSamples) % k_FrameGraphSamples;
+        for (int i = 0; i < count; i++) {
+            snapshot.samples[s][i] = m_GraphSamples[s][(start + i) % k_FrameGraphSamples];
+        }
+        snapshot.count[s] = count;
+        hasSamples = hasSamples || count > 1;
+    }
+    snapshot.targetMs = 1000.0f / m_GraphTargetFps;
+    SDL_AtomicUnlock(&m_GraphLock);
+
+    return hasSamples;
 }
 
 bool OverlayManager::isOverlayRightAligned(OverlayType type)
@@ -151,6 +278,17 @@ void OverlayManager::setOverlayTextUpdated(OverlayType type)
 
 void OverlayManager::setOverlayState(OverlayType type, bool enabled)
 {
+    if (type == OverlayDebug) {
+        // This is the user's stats toggle. The overlay may stay visible
+        // without stats while a notification is being shown.
+        m_DebugStatsEnabled = enabled;
+        if (!enabled) {
+            m_Overlays[type].text[0] = 0;
+        }
+        updateDebugVisibility();
+        return;
+    }
+
     bool stateChanged = m_Overlays[type].enabled != enabled;
 
     m_Overlays[type].enabled = enabled;
@@ -184,6 +322,10 @@ void OverlayManager::notifyOverlayUpdated(OverlayType type)
         return;
     }
 
+    // Overlays may be updated concurrently from several threads, but TTF fonts
+    // are not thread-safe, so rendering must be serialized.
+    QMutexLocker renderLock(&m_RenderMutex);
+
     // Construct the required font to render the overlay
     if (m_Overlays[type].font == nullptr) {
         if (m_FontData.isEmpty()) {
@@ -209,11 +351,20 @@ void OverlayManager::notifyOverlayUpdated(OverlayType type)
     SDL_Surface* newSurface = nullptr;
     if (m_Overlays[type].enabled) {
         if (type == OverlayDebug) {
-            // Stats are drawn on a translucent panel for legibility
+            // The frame time graph accompanies the Full and Compact stats layouts
+            FrameGraphSnapshot graph;
+            bool showGraph = m_DebugStatsEnabled &&
+                             m_Overlays[type].text[0] != 0 &&
+                             getDebugOverlayMode() != DebugOverlayModeMini &&
+                             takeFrameGraphSnapshot(graph);
+
+            // Stats and notifications are drawn on a translucent panel for legibility
+            QByteArray text = composeDebugText();
             newSurface = RenderTextPanel(m_Overlays[type].font,
-                                         m_Overlays[type].text,
+                                         text.constData(),
                                          m_Overlays[type].color,
-                                         {0x10, 0x10, 0x14, 0xB8});
+                                         {0x10, 0x10, 0x14, 0xB8},
+                                         showGraph ? &graph : nullptr);
         }
         else {
             // The _Wrapped variant is required for line breaks to work
@@ -282,7 +433,8 @@ SDL_Surface* OverlayManager::RenderTextOutlinedWrapped(TTF_Font* font, const cha
 
 
 
-SDL_Surface* OverlayManager::RenderTextPanel(TTF_Font* font, const char* text, SDL_Color textColor, SDL_Color panelColor)
+SDL_Surface* OverlayManager::RenderTextPanel(TTF_Font* font, const char* text, SDL_Color textColor, SDL_Color panelColor,
+                                             const FrameGraphSnapshot* graph)
 {
     // Spacing (in pixels) between the screen edge and the panel,
     // the panel edge and the text, and the panel corner radius.
@@ -333,8 +485,13 @@ SDL_Surface* OverlayManager::RenderTextPanel(TTF_Font* font, const char* text, S
         contentWidth += 2 * outlineWidth;
     }
 
-    int panelW = contentWidth + 2 * padX;
-    int panelH = textSurface->h + 2 * padY;
+    // Optional frame time graph below the text: a legend line plus the plot
+    const int graphGap = 8;
+    const int graphWidth = k_FrameGraphSamples * 2;
+    const int graphBlockHeight = graph ? (graphGap + TTF_FontHeight(font) + 4 + k_FrameGraphHeight) : 0;
+
+    int panelW = SDL_max(contentWidth, graph ? graphWidth : 0) + 2 * padX;
+    int panelH = textSurface->h + graphBlockHeight + 2 * padY;
 
     // The surface includes a transparent margin, so renderers can keep
     // placing it flush against the screen edge.
@@ -380,7 +537,114 @@ SDL_Surface* OverlayManager::RenderTextPanel(TTF_Font* font, const char* text, S
     SDL_Rect src = { 0, 0, contentWidth, textSurface->h };
     SDL_Rect dst = { margin + padX, margin + padY, contentWidth, textSurface->h };
     SDL_BlitSurface(textSurface, &src, surface, &dst);
+
+    if (graph) {
+        DrawFrameGraph(surface, font, margin + padX, margin + padY + textSurface->h + graphGap, graphWidth, *graph);
+    }
+
     SDL_FreeSurface(textSurface);
 
     return surface;
+}
+
+void OverlayManager::DrawFrameGraph(SDL_Surface* surface, TTF_Font* font, int x, int y, int width, const FrameGraphSnapshot& graph)
+{
+    static const SDL_Color k_SeriesColors[FrameGraphSeriesMax] = {
+        {0x4F, 0xC3, 0xF7, 0xFF}, // Network: light blue
+        {0xFF, 0xC1, 0x07, 0xFF}, // Display: amber
+    };
+    static const char* const k_SeriesNames[FrameGraphSeriesMax] = { "net", "display" };
+    const SDL_Color labelColor = {0xB0, 0xB0, 0xB0, 0xFF};
+    const int samplesShown = width / 2;
+
+    // Worst frame interval of each series over the visible window
+    float seriesMax[FrameGraphSeriesMax] = {};
+    float overallMax = 0;
+    for (int s = 0; s < FrameGraphSeriesMax; s++) {
+        int start = SDL_max(0, graph.count[s] - samplesShown);
+        for (int i = start; i < graph.count[s]; i++) {
+            seriesMax[s] = SDL_max(seriesMax[s], graph.samples[s][i]);
+        }
+        overallMax = SDL_max(overallMax, seriesMax[s]);
+    }
+
+    // Legend, e.g. "net max 21.3  display max 17.9 ms"
+    int legendX = x;
+    auto drawLegendText = [&](const char* str, SDL_Color color) {
+        SDL_Surface* t = TTF_RenderUTF8_Blended(font, str, color);
+        if (t != nullptr) {
+            SDL_SetSurfaceBlendMode(t, SDL_BLENDMODE_BLEND);
+            SDL_Rect dst = { legendX, y, t->w, t->h };
+            SDL_BlitSurface(t, nullptr, surface, &dst);
+            legendX += t->w;
+            SDL_FreeSurface(t);
+        }
+    };
+    char buf[48];
+    for (int s = 0; s < FrameGraphSeriesMax; s++) {
+        drawLegendText(k_SeriesNames[s], k_SeriesColors[s]);
+        SDL_snprintf(buf, sizeof(buf), s + 1 < FrameGraphSeriesMax ? " max %.1f  " : " max %.1f ms", seriesMax[s]);
+        drawLegendText(buf, labelColor);
+    }
+
+    // The plot's vertical scale fits the worst spike, with the frame interval target
+    // at a sensible height, and is capped so a single huge stall doesn't flatten it.
+    int plotY = y + TTF_FontHeight(font) + 4;
+    const int plotH = k_FrameGraphHeight;
+    float scaleMax = SDL_max(graph.targetMs * 2.5f, overallMax);
+    scaleMax = SDL_min(scaleMax, SDL_max(100.0f, graph.targetMs * 4.0f));
+    scaleMax = SDL_ceilf(scaleMax / 5.0f) * 5.0f;
+
+    auto valueToY = [&](float ms) {
+        float clamped = SDL_min(ms, scaleMax);
+        return plotY + plotH - 1 - (int)(clamped / scaleMax * (plotH - 1));
+    };
+
+    if (SDL_LockSurface(surface) != 0) {
+        return;
+    }
+
+    auto putPixel = [&](int px, int py, Uint32 color) {
+        if (px >= 0 && py >= 0 && px < surface->w && py < surface->h) {
+            ((Uint32*)((Uint8*)surface->pixels + py * surface->pitch))[px] = color;
+        }
+    };
+
+    // Plot background
+    Uint32 background = SDL_MapRGBA(surface->format, 0x26, 0x26, 0x2E, 0xD8);
+    for (int py = plotY; py < plotY + plotH; py++) {
+        for (int px = x; px < x + width; px++) {
+            putPixel(px, py, background);
+        }
+    }
+
+    // Dotted reference line at the target frame interval (e.g. 16.7 ms at 60 FPS)
+    Uint32 targetColor = SDL_MapRGBA(surface->format, 0x90, 0x90, 0x90, 0xFF);
+    int targetY = valueToY(graph.targetMs);
+    for (int px = x; px < x + width; px += 4) {
+        putPixel(px, targetY, targetColor);
+        putPixel(px + 1, targetY, targetColor);
+    }
+
+    // Each series as a 2px wide connected line, newest sample at the right edge
+    for (int s = 0; s < FrameGraphSeriesMax; s++) {
+        Uint32 color = SDL_MapRGBA(surface->format, k_SeriesColors[s].r, k_SeriesColors[s].g, k_SeriesColors[s].b, 0xFF);
+        int shown = SDL_min(graph.count[s], samplesShown);
+        int start = graph.count[s] - shown;
+        int prevY = -1;
+
+        for (int i = 0; i < shown; i++) {
+            int px = x + width - (shown - i) * 2;
+            int py = valueToY(graph.samples[s][start + i]);
+            int fromY = prevY < 0 ? py : prevY;
+
+            for (int ly = SDL_min(fromY, py); ly <= SDL_max(fromY, py); ly++) {
+                putPixel(px, ly, color);
+                putPixel(px + 1, ly, color);
+            }
+            prevY = py;
+        }
+    }
+
+    SDL_UnlockSurface(surface);
 }

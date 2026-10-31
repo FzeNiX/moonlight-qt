@@ -22,6 +22,8 @@ public:
     virtual bool isAlwaysFullScreen() override;
     virtual bool isHdrSupported() override;
     virtual int getDecoderCapabilities() override;
+    virtual int getVideoAdjustmentSupport() override;
+    virtual void setVideoAdjustments(const VIDEO_COLOR_ADJUSTMENTS& colorAdjustments, float sharpness) override;
     virtual int getDecoderColorspace() override;
     virtual int getDecoderColorRange() override;
     virtual QSize getDecoderMaxResolution() override;
@@ -124,6 +126,7 @@ private:
     int m_FramesOut;
 
     int m_LastFrameNumber;
+    uint64_t m_LastFrameReceiveTimeUs = 0;
     int m_StreamFps;
     int m_OriginalVideoWidth;
     int m_OriginalVideoHeight;

@@ -64,7 +64,7 @@ void SdlInputHandler::performSpecialKeyCombo(KeyCombo combo)
 
         // Toggle the stats overlay
         Session::get()->getOverlayManager().setOverlayState(Overlay::OverlayDebug,
-                                                            !Session::get()->getOverlayManager().isOverlayEnabled(Overlay::OverlayDebug));
+                                                            !Session::get()->getOverlayManager().isDebugStatsEnabled());
         break;
 
     case KeyComboCycleStatsOverlayMode:
@@ -74,6 +74,28 @@ void SdlInputHandler::performSpecialKeyCombo(KeyCombo combo)
         // Full -> Compact -> Mini, and show the overlay if it was hidden
         Session::get()->getOverlayManager().cycleDebugOverlayMode();
         Session::get()->getOverlayManager().setOverlayState(Overlay::OverlayDebug, true);
+        break;
+
+    case KeyComboVideoAdjustIncrease:
+        Session::get()->changeVideoAdjustment(1);
+        break;
+
+    case KeyComboVideoAdjustDecrease:
+        Session::get()->changeVideoAdjustment(-1);
+        break;
+
+    case KeyComboVideoAdjustPrevious:
+        Session::get()->selectVideoAdjustment(-1);
+        break;
+
+    case KeyComboVideoAdjustNext:
+        Session::get()->selectVideoAdjustment(1);
+        break;
+
+    case KeyComboVideoAdjustReset:
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                    "Detected video adjustment reset combo");
+        Session::get()->resetVideoAdjustments();
         break;
 
     case KeyComboCycleStatsOverlayPosition:

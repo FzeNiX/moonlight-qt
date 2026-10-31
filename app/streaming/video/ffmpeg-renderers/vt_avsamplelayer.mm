@@ -441,7 +441,7 @@ public:
         }
 
         // Update text contents
-        NSString* overlayText = [NSString stringWithUTF8String:Session::get()->getOverlayManager().getOverlayText(type)];
+        NSString* overlayText = Session::get()->getOverlayManager().getOverlayDisplayText(type).toNSString();
         if (type == Overlay::OverlayDebug) {
             // Trailing line breaks would only add empty space to the panel
             overlayText = [overlayText stringByTrimmingCharactersInSet:[NSCharacterSet newlineCharacterSet]];

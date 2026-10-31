@@ -11,6 +11,7 @@ public:
     EGLRenderer(IFFmpegRenderer *backendRenderer);
     virtual ~EGLRenderer() override;
     virtual bool initialize(PDECODER_PARAMETERS params) override;
+    virtual int getVideoAdjustmentSupport() override { return VIDEO_ADJUST_COLOR; }
     virtual bool prepareDecoderContext(AVCodecContext* context, AVDictionary** options) override;
     virtual void cleanupRenderContext() override;
     virtual void waitToRender() override;

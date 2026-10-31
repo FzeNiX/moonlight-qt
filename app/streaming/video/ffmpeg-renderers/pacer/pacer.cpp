@@ -365,6 +365,14 @@ void Pacer::renderFrame(AVFrame* frame)
     m_VideoStats->totalRenderTimeUs += (afterRender - beforeRender);
     m_VideoStats->renderedFrames++;
 
+    // Feed the stats overlay graph with the presentation interval, which
+    // shows stutter on the display side (pacing, V-Sync misses, slow renders).
+    if (m_LastRenderTimeUs != 0) {
+        Session::get()->getOverlayManager().addFrameGraphSample(Overlay::FrameGraphDisplay,
+                                                                (afterRender - m_LastRenderTimeUs) / 1000.0f);
+    }
+    m_LastRenderTimeUs = afterRender;
+
     // Wait until after next frame to free this one to ensure the GPU
     // doesn't stall or read garbage if the backing buffer gets returned
     // to the pool and the decoder tries to write a new frame into it

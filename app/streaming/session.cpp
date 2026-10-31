@@ -299,13 +299,12 @@ bool Session::chooseDecoder(StreamingPreferences::VideoDecoderSelection vds,
     params.sharpness = 0.0f;
     params.colorAdjustments = { 0.0f, 1.0f, 1.0f };
     if (!testOnly && s_ActiveSession != nullptr) {
-        StreamingPreferences* prefs = s_ActiveSession->m_Preferences;
-        if (prefs->videoSharpening) {
-            params.sharpness = prefs->videoSharpness / 100.0f;
-        }
-        params.colorAdjustments.brightness = prefs->colorBrightness / 100.0f;
-        params.colorAdjustments.contrast = prefs->colorContrast / 100.0f;
-        params.colorAdjustments.saturation = prefs->colorSaturation / 100.0f;
+        // Use the live values so adjustments survive decoder re-creation (e.g. window resizes)
+        const int* live = s_ActiveSession->m_LiveVideoAdjustments;
+        params.sharpness = live[VA_SHARPNESS] / 100.0f;
+        params.colorAdjustments.brightness = live[VA_BRIGHTNESS] / 100.0f;
+        params.colorAdjustments.contrast = live[VA_CONTRAST] / 100.0f;
+        params.colorAdjustments.saturation = live[VA_SATURATION] / 100.0f;
     }
     params.vds = vds;
     params.renderer = renderer;
@@ -617,6 +616,105 @@ Session::Session(NvComputer* computer, NvApp& app, StreamingPreferences *prefere
       m_AudioSampleCount(0),
       m_DropAudioEndTime(0)
 {
+    // Live adjustments start from the (possibly per-host) settings
+    m_LiveVideoAdjustments[VA_SHARPNESS] = m_Preferences->videoSharpening ? m_Preferences->videoSharpness : 0;
+    m_LiveVideoAdjustments[VA_BRIGHTNESS] = m_Preferences->colorBrightness;
+    m_LiveVideoAdjustments[VA_CONTRAST] = m_Preferences->colorContrast;
+    m_LiveVideoAdjustments[VA_SATURATION] = m_Preferences->colorSaturation;
+    m_SelectedVideoAdjustment = VA_SHARPNESS;
+}
+
+struct VideoAdjustmentInfo {
+    const char* name;
+    int min, max, step;
+    int support; // VIDEO_ADJUST_* flag needed to apply it
+};
+
+// Ranges match the Settings UI. Indexed by Session::VideoAdjustment.
+static const VideoAdjustmentInfo k_VideoAdjustments[] = {
+    { "Sharpness",  0, 100, 5, VIDEO_ADJUST_SHARPEN },
+    { "Brightness", -30, 30, 1, VIDEO_ADJUST_COLOR },
+    { "Contrast",   50, 150, 2, VIDEO_ADJUST_COLOR },
+    { "Saturation", 0, 200, 5, VIDEO_ADJUST_COLOR },
+};
+
+void Session::selectVideoAdjustment(int direction)
+{
+    m_SelectedVideoAdjustment = (VideoAdjustment)((m_SelectedVideoAdjustment + direction + VA_MAX) % VA_MAX);
+    showVideoAdjustmentStatus();
+}
+
+void Session::changeVideoAdjustment(int steps)
+{
+    const VideoAdjustmentInfo& info = k_VideoAdjustments[m_SelectedVideoAdjustment];
+    int& value = m_LiveVideoAdjustments[m_SelectedVideoAdjustment];
+    value = qBound(info.min, value + steps * info.step, info.max);
+
+    applyVideoAdjustments();
+    showVideoAdjustmentStatus();
+}
+
+void Session::resetVideoAdjustments()
+{
+    m_LiveVideoAdjustments[VA_SHARPNESS] = m_Preferences->videoSharpening ? m_Preferences->videoSharpness : 0;
+    m_LiveVideoAdjustments[VA_BRIGHTNESS] = m_Preferences->colorBrightness;
+    m_LiveVideoAdjustments[VA_CONTRAST] = m_Preferences->colorContrast;
+    m_LiveVideoAdjustments[VA_SATURATION] = m_Preferences->colorSaturation;
+
+    applyVideoAdjustments();
+    showVideoAdjustmentStatus();
+}
+
+void Session::applyVideoAdjustments()
+{
+    VIDEO_COLOR_ADJUSTMENTS colors;
+    colors.brightness = m_LiveVideoAdjustments[VA_BRIGHTNESS] / 100.0f;
+    colors.contrast = m_LiveVideoAdjustments[VA_CONTRAST] / 100.0f;
+    colors.saturation = m_LiveVideoAdjustments[VA_SATURATION] / 100.0f;
+
+    SDL_LockMutex(m_DecoderLock);
+    if (m_VideoDecoder != nullptr) {
+        m_VideoDecoder->setVideoAdjustments(colors, m_LiveVideoAdjustments[VA_SHARPNESS] / 100.0f);
+    }
+    SDL_UnlockMutex(m_DecoderLock);
+}
+
+void Session::showVideoAdjustmentStatus()
+{
+    int support = 0;
+    SDL_LockMutex(m_DecoderLock);
+    if (m_VideoDecoder != nullptr) {
+        support = m_VideoDecoder->getVideoAdjustmentSupport();
+    }
+    SDL_UnlockMutex(m_DecoderLock);
+
+    // e.g. "> Saturation 115%" with the selected item marked
+    QString text = "Video adjustments (Ctrl+Alt+Shift+Arrows, R: reset)";
+    for (int i = 0; i < VA_MAX; i++) {
+        const VideoAdjustmentInfo& info = k_VideoAdjustments[i];
+        int value = m_LiveVideoAdjustments[i];
+        QString valueText;
+
+        if (!(support & info.support)) {
+            valueText = "n/a with this renderer";
+        }
+        else if (i == VA_SHARPNESS && value == 0) {
+            valueText = "Off";
+        }
+        else if (i == VA_BRIGHTNESS) {
+            valueText = QString("%1%2%").arg(value > 0 ? "+" : "").arg(value);
+        }
+        else {
+            valueText = QString("%1%").arg(value);
+        }
+
+        text += QString("\n%1 %2 %3")
+                    .arg(i == m_SelectedVideoAdjustment ? ">" : " ")
+                    .arg(info.name, -10)
+                    .arg(valueText);
+    }
+
+    m_OverlayManager.showDebugNotification(text, 3000);
 }
 
 Session::~Session()
@@ -2018,6 +2116,7 @@ void Session::exec()
     }
     m_OverlayManager.setDebugOverlayPosition(m_Preferences->performanceOverlayPosition == StreamingPreferences::POP_TOP_RIGHT ?
                                                  Overlay::DebugOverlayPositionRight : Overlay::DebugOverlayPositionLeft);
+    m_OverlayManager.setFrameGraphTargetFps(m_StreamConfig.fps);
     m_OverlayManager.setOverlayState(Overlay::OverlayDebug, m_Preferences->showPerformanceOverlay);
 
     // Switch to async logging mode when we enter the SDL loop

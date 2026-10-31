@@ -19,12 +19,14 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 //
-// This shader is compiled at runtime (see D3D11VARenderer::createSharpenPixelShader())
-// with RCAS_STRENGTH defined as the sharpening strength in [0, 1].
+// This shader is compiled at runtime (see D3D11VARenderer::createSharpenPixelShader()).
+// The sharpening strength in [0, 1] comes from a constant buffer so it can be changed live.
 
-#ifndef RCAS_STRENGTH
-#define RCAS_STRENGTH 0.5
-#endif
+cbuffer RCAS_CONST_BUF : register(b1)
+{
+    float rcasStrength;
+    float3 padding;
+};
 
 #define RCAS_LIMIT (0.25 - (1.0 / 16.0))
 
@@ -59,7 +61,7 @@ float4 main(ShaderInput input) : SV_TARGET
     float3 hitMin = min(mn4, e) / max(4.0 * mx4, 1e-5);
     float3 hitMax = (1.0 - max(mx4, e)) / min(4.0 * mn4 - 4.0, -1e-5);
     float3 lobeRGB = max(-hitMin, hitMax);
-    float lobe = max(-RCAS_LIMIT, min(max(lobeRGB.r, max(lobeRGB.g, lobeRGB.b)), 0.0)) * RCAS_STRENGTH;
+    float lobe = max(-RCAS_LIMIT, min(max(lobeRGB.r, max(lobeRGB.g, lobeRGB.b)), 0.0)) * rcasStrength;
 
     float3 c = (lobe * (b + d + f + h) + e) / (4.0 * lobe + 1.0);
     return float4(saturate(c), e4.a);

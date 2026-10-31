@@ -18,6 +18,7 @@ public:
     D3D11VARenderer(int decoderSelectionPass);
     virtual ~D3D11VARenderer() override;
     virtual bool initialize(PDECODER_PARAMETERS params) override;
+    virtual int getVideoAdjustmentSupport() override { return VIDEO_ADJUST_COLOR | VIDEO_ADJUST_SHARPEN; }
     virtual bool prepareDecoderContext(AVCodecContext* context, AVDictionary**) override;
     virtual bool prepareDecoderContextInGetFormat(AVCodecContext* context, AVPixelFormat pixelFormat) override;
     virtual void renderFrame(AVFrame* frame) override;
@@ -48,6 +49,7 @@ private:
     bool createSharpenPixelShader();
     bool setupSharpenResources();
     void renderSharpenPass();
+    void updateSharpness(float sharpness);
     bool createOverlayVertexBuffer(Overlay::OverlayType type, int width, int height, Microsoft::WRL::ComPtr<ID3D11Buffer>& newVertexBuffer);
     void bindColorConversion(bool frameChanged, AVFrame* frame);
     void bindVideoVertexBuffer(bool frameChanged, AVFrame* frame);
@@ -120,6 +122,9 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Texture2D> m_SharpenTexture;
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> m_SharpenRenderTargetView;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_SharpenResourceView;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> m_SharpenConstantBuffer;
+    float m_SharpenStrength = 0.0f;
+    bool m_SharpenConstantsDirty = false;
 
     AVBufferRef* m_HwDeviceContext;
 };

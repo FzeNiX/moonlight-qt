@@ -94,6 +94,20 @@ bool FFmpegVideoDecoder::notifyWindowChanged(PWINDOW_STATE_CHANGE_INFO info)
     return ret;
 }
 
+int FFmpegVideoDecoder::getVideoAdjustmentSupport()
+{
+    return m_FrontendRenderer ? m_FrontendRenderer->getVideoAdjustmentSupport() : 0;
+}
+
+void FFmpegVideoDecoder::setVideoAdjustments(const VIDEO_COLOR_ADJUSTMENTS& colorAdjustments, float sharpness)
+{
+    // The frontend renderer is the one drawing to the screen
+    if (m_FrontendRenderer) {
+        m_FrontendRenderer->setColorAdjustments(colorAdjustments);
+        m_FrontendRenderer->setSharpness(sharpness);
+    }
+}
+
 int FFmpegVideoDecoder::getDecoderCapabilities()
 {
     int capabilities;
@@ -2267,10 +2281,18 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
 
     m_BwTracker.AddBytes(du->fullLength);
 
+    // Feed the stats overlay graph with the frame arrival interval, which
+    // exposes network jitter and loss that per-second averages hide.
+    if (m_LastFrameReceiveTimeUs != 0 && du->receiveTimeUs > m_LastFrameReceiveTimeUs) {
+        Session::get()->getOverlayManager().addFrameGraphSample(Overlay::FrameGraphNetwork,
+                                                                (du->receiveTimeUs - m_LastFrameReceiveTimeUs) / 1000.0f);
+    }
+    m_LastFrameReceiveTimeUs = du->receiveTimeUs;
+
     // Flip stats windows roughly every second
     if (LiGetMicroseconds() > m_ActiveWndVideoStats.measurementStartUs + 1000000) {
         // Update overlay stats if it's enabled
-        if (Session::get()->getOverlayManager().isOverlayEnabled(Overlay::OverlayDebug)) {
+        if (Session::get()->getOverlayManager().isDebugStatsEnabled()) {
             VIDEO_STATS lastTwoWndStats = {};
             addVideoStats(m_LastWndVideoStats, lastTwoWndStats);
             addVideoStats(m_ActiveWndVideoStats, lastTwoWndStats);

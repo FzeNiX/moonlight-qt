@@ -818,8 +818,11 @@ void EGLRenderer::renderFrame(AVFrame* frame)
 
     glUseProgram(m_ShaderProgram);
 
-    // If the frame format has changed, we'll need to recompute the constants
-    if (hasFrameFormatChanged(frame) && (m_EGLImagePixelFormat == AV_PIX_FMT_NV12 || m_EGLImagePixelFormat == AV_PIX_FMT_P010)) {
+    // If the frame format or live color adjustments changed, we'll need to recompute the constants.
+    // Both functions must be called every frame to keep their state up to date.
+    bool frameChanged = hasFrameFormatChanged(frame);
+    bool colorAdjustmentsChanged = applyPendingColorAdjustments();
+    if ((frameChanged || colorAdjustmentsChanged) && (m_EGLImagePixelFormat == AV_PIX_FMT_NV12 || m_EGLImagePixelFormat == AV_PIX_FMT_P010)) {
         std::array<float, 9> colorMatrix;
         std::array<float, 3> yuvOffsets;
         std::array<float, 2> chromaOffset;

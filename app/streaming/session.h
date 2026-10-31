@@ -169,6 +169,17 @@ private:
 
     void notifyMouseEmulationMode(bool enabled);
 
+
+    // Live video adjustments while streaming (bound to hotkeys).
+
+    // These change only the current stream, not the saved settings.
+
+    void selectVideoAdjustment(int direction);
+
+    void changeVideoAdjustment(int steps);
+
+    void resetVideoAdjustments();
+
     void updateOptimalWindowDisplayMode();
 
     enum class DecoderAvailability {
@@ -246,8 +257,24 @@ private:
     static
     StreamingPreferences* createSessionPreferences(NvComputer* computer, StreamingPreferences* preferences);
 
+    enum VideoAdjustment {
+        VA_SHARPNESS,
+        VA_BRIGHTNESS,
+        VA_CONTRAST,
+        VA_SATURATION,
+        VA_MAX
+    };
+
+    void applyVideoAdjustments();
+    void showVideoAdjustmentStatus();
+
     StreamingPreferences* m_Preferences;
     bool m_OwnsPreferences;
+
+    // Current live video adjustments, in the same units as the preferences
+    // (sharpness 0-100 where 0 is off, brightness/contrast/saturation in percent)
+    int m_LiveVideoAdjustments[VA_MAX];
+    VideoAdjustment m_SelectedVideoAdjustment;
     bool m_IsFullScreen;
     SupportedVideoFormatList m_SupportedVideoFormats; // Sorted in order of descending priority
     STREAM_CONFIGURATION m_StreamConfig;

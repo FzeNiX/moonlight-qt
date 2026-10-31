@@ -432,12 +432,18 @@ bool PlVkRenderer::createSharpenHook(float sharpness)
     //
     // This runs at the OUTPUT stage, after scaling and color management, so it sharpens
     // the image exactly as it will be displayed (and only within the video area).
-    static const char k_RcasShaderTemplate[] =
+    // The strength is a shader parameter, so it can be changed live without recompiling.
+    static const char k_RcasShader[] =
+        "//!PARAM strength\n"
+        "//!TYPE float\n"
+        "//!MINIMUM 0.0\n"
+        "//!MAXIMUM 1.0\n"
+        "0.5\n"
+        "\n"
         "//!HOOK OUTPUT\n"
         "//!BIND HOOKED\n"
         "//!DESC Moonlight FSR RCAS sharpening\n"
         "\n"
-        "#define RCAS_STRENGTH %.3f\n"
         "#define RCAS_LIMIT (0.25 - (1.0 / 16.0))\n"
         "\n"
         "vec4 hook() {\n"
@@ -455,26 +461,71 @@ bool PlVkRenderer::createSharpenHook(float sharpness)
         "    vec3 hitMin = min(mn4, e) / max(4.0 * mx4, vec3(1e-5));\n"
         "    vec3 hitMax = (1.0 - max(mx4, e)) / min(4.0 * mn4 - 4.0, vec3(-1e-5));\n"
         "    vec3 lobeRGB = max(-hitMin, hitMax);\n"
-        "    float lobe = max(-RCAS_LIMIT, min(max(lobeRGB.r, max(lobeRGB.g, lobeRGB.b)), 0.0)) * RCAS_STRENGTH;\n"
+        "    float lobe = max(-RCAS_LIMIT, min(max(lobeRGB.r, max(lobeRGB.g, lobeRGB.b)), 0.0)) * strength;\n"
         "\n"
         "    vec3 c = (lobe * (b + d + f + h) + e) / (4.0 * lobe + 1.0);\n"
         "    return vec4(clamp(c, 0.0, 1.0), e4.a);\n"
         "}\n";
 
-    char shaderText[sizeof(k_RcasShaderTemplate) + 32];
-    SDL_snprintf(shaderText, sizeof(shaderText), k_RcasShaderTemplate, SDL_min(1.0f, SDL_max(0.0f, sharpness)));
-
-    m_SharpenHook = pl_mpv_user_shader_parse(m_Vulkan->gpu, shaderText, SDL_strlen(shaderText));
+    m_SharpenHook = pl_mpv_user_shader_parse(m_Vulkan->gpu, k_RcasShader, sizeof(k_RcasShader) - 1);
     if (m_SharpenHook == nullptr) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "Failed to create FSR RCAS sharpening shader");
         return false;
     }
 
+    m_SharpenStrength = nullptr;
+    for (int i = 0; i < m_SharpenHook->num_parameters; i++) {
+        if (SDL_strcmp(m_SharpenHook->parameters[i].name, "strength") == 0) {
+            m_SharpenStrength = m_SharpenHook->parameters[i].data;
+        }
+    }
+    if (m_SharpenStrength == nullptr) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "FSR RCAS sharpening shader has no strength parameter");
+        pl_mpv_user_shader_destroy(&m_SharpenHook);
+        return false;
+    }
+
+    m_SharpenStrength->f = SDL_min(1.0f, SDL_max(0.0f, sharpness));
     SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                 "FSR RCAS sharpening enabled (strength: %.2f)",
                 sharpness);
     return true;
+}
+
+void PlVkRenderer::updateSharpness(float sharpness)
+{
+    if (sharpness > 0) {
+        // Create the hook on first use if sharpening was off when streaming started
+        if (m_SharpenHook == nullptr && !createSharpenHook(sharpness)) {
+            return;
+        }
+
+        m_SharpenStrength->f = SDL_min(1.0f, SDL_max(0.0f, sharpness));
+        m_RenderParams.hooks = &m_SharpenHook;
+        m_RenderParams.num_hooks = 1;
+    }
+    else {
+        // Skip the extra pass entirely while sharpening is off
+        m_RenderParams.hooks = nullptr;
+        m_RenderParams.num_hooks = 0;
+    }
+}
+
+void PlVkRenderer::applyPendingAdjustments()
+{
+    // libplacebo applies these during YUV->RGB decoding, matching the other renderers
+    if (applyPendingColorAdjustments()) {
+        m_ColorAdjustment.brightness = m_ColorAdjustments.brightness;
+        m_ColorAdjustment.contrast = m_ColorAdjustments.contrast;
+        m_ColorAdjustment.saturation = m_ColorAdjustments.saturation;
+    }
+
+    float sharpness;
+    if (takePendingSharpness(sharpness)) {
+        updateSharpness(sharpness);
+    }
 }
 
 bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
@@ -599,23 +650,13 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
 
     m_RenderParams = pl_render_fast_params;
 
-    // libplacebo applies these during YUV->RGB decoding, matching the other renderers
+    // Color adjustments are applied (and updated live) in renderFrame()
     m_ColorAdjustment = pl_color_adjustment_neutral;
-    m_ColorAdjustment.brightness = m_ColorAdjustments.brightness;
-    m_ColorAdjustment.contrast = m_ColorAdjustments.contrast;
-    m_ColorAdjustment.saturation = m_ColorAdjustments.saturation;
     m_RenderParams.color_adjustment = &m_ColorAdjustment;
-    if (hasColorAdjustments()) {
-        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                    "Color adjustments: brightness %.2f, contrast %.2f, saturation %.2f",
-                    m_ColorAdjustment.brightness, m_ColorAdjustment.contrast, m_ColorAdjustment.saturation);
-    }
+
     if (params->sharpness > 0 && !params->testOnly) {
         // Sharpening is optional, so failure here is not fatal
-        if (createSharpenHook(params->sharpness)) {
-            m_RenderParams.hooks = &m_SharpenHook;
-            m_RenderParams.num_hooks = 1;
-        }
+        updateSharpness(params->sharpness);
     }
 
 #ifdef PLVK_USE_EARLY_RENDER_TO_WAIT
@@ -1164,6 +1205,9 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
     // Render the video image and overlays into the swapchain buffer
     targetFrame.num_overlays = (int)overlays.size();
     targetFrame.overlays = overlays.data();
+    // Pick up any live color or sharpness changes
+    applyPendingAdjustments();
+
     if (!pl_render_image(m_Renderer, &mappedFrame, &targetFrame, &m_RenderParams)) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "pl_render_image() failed");

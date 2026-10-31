@@ -767,8 +767,14 @@ void D3D11VARenderer::renderFrame(AVFrame* frame)
         lockContext(this);
     }
 
+    // Pick up any live sharpness change
+    float newSharpness;
+    if (takePendingSharpness(newSharpness) && !m_DecoderParams.testOnly) {
+        updateSharpness(newSharpness);
+    }
+
     // If sharpening is enabled, the video is first rendered into an intermediate texture
-    bool sharpen = m_SharpenPixelShader && m_SharpenRenderTargetView;
+    bool sharpen = m_SharpenPixelShader && m_SharpenRenderTargetView && m_SharpenStrength > 0;
     ID3D11RenderTargetView* videoRenderTarget = sharpen ? m_SharpenRenderTargetView.Get() : m_RenderTargetView.Get();
 
     // Clear the video render target
@@ -1071,11 +1077,14 @@ void D3D11VARenderer::renderVideo(AVFrame* frame)
 
     bool frameChanged = hasFrameFormatChanged(frame);
 
+    // Live color adjustments are folded into the CSC constants
+    bool colorAdjustmentsChanged = applyPendingColorAdjustments();
+
     // Bind our vertex buffer
     bindVideoVertexBuffer(frameChanged, frame);
 
     // Bind our CSC shader (and constant buffer, if required)
-    bindColorConversion(frameChanged, frame);
+    bindColorConversion(frameChanged || colorAdjustmentsChanged, frame);
 
     // Bind SRVs for this frame
     ID3D11ShaderResourceView* frameSrvs[] = { m_VideoTextureResourceViews[srvIndex][0].Get(), m_VideoTextureResourceViews[srvIndex][1].Get() };
@@ -1734,7 +1743,8 @@ bool D3D11VARenderer::setupRenderingResources()
     }
 
     // Sharpening is optional, so failure here just leaves it disabled
-    if (m_DecoderParams.sharpness > 0 && !m_DecoderParams.testOnly) {
+    m_SharpenStrength = SDL_min(1.0f, SDL_max(0.0f, m_DecoderParams.sharpness));
+    if (m_SharpenStrength > 0 && !m_DecoderParams.testOnly) {
         if (!createSharpenPixelShader()) {
             m_SharpenPixelShader.Reset();
             m_SharpenVertexBuffer.Reset();
@@ -1828,16 +1838,9 @@ bool D3D11VARenderer::createSharpenPixelShader()
         return false;
     }
 
-    char strength[16];
-    SDL_snprintf(strength, sizeof(strength), "%.3f", SDL_min(1.0f, SDL_max(0.0f, m_DecoderParams.sharpness)));
-    const D3D_SHADER_MACRO defines[] = {
-        { "RCAS_STRENGTH", strength },
-        { nullptr, nullptr },
-    };
-
     ComPtr<ID3DBlob> bytecode, errors;
     hr = fnD3DCompile(shaderSource.constData(), shaderSource.size(), "d3d11_rcas_pixel.hlsl",
-                      defines, nullptr, "main", "ps_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0,
+                      nullptr, nullptr, "main", "ps_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0,
                       &bytecode, &errors);
     FreeLibrary(compilerModule);
     if (FAILED(hr)) {
@@ -1882,10 +1885,45 @@ bool D3D11VARenderer::createSharpenPixelShader()
         return false;
     }
 
+    // Strength constant buffer (updated whenever the strength changes)
+    D3D11_BUFFER_DESC cbDesc = {};
+    cbDesc.ByteWidth = 4 * sizeof(float);
+    cbDesc.Usage = D3D11_USAGE_DEFAULT;
+    cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+
+    hr = m_RenderDevice->CreateBuffer(&cbDesc, nullptr, &m_SharpenConstantBuffer);
+    if (FAILED(hr)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "ID3D11Device::CreateBuffer() failed for sharpening constants: %x",
+                     hr);
+        return false;
+    }
+    m_SharpenConstantsDirty = true;
+
     SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                "FSR RCAS sharpening enabled (strength: %s)",
-                strength);
+                "FSR RCAS sharpening enabled (strength: %.2f)",
+                m_SharpenStrength);
     return true;
+}
+
+void D3D11VARenderer::updateSharpness(float sharpness)
+{
+    m_SharpenStrength = SDL_min(1.0f, SDL_max(0.0f, sharpness));
+    m_SharpenConstantsDirty = true;
+
+    // Create the sharpening resources on first use if sharpening was off when
+    // streaming started. This compiles the shader, so it may cause one slow frame.
+    if (m_SharpenStrength > 0 && !m_SharpenPixelShader) {
+        if (!createSharpenPixelShader() || !setupSharpenResources()) {
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                        "Unable to enable sharpening");
+            m_SharpenResourceView.Reset();
+            m_SharpenRenderTargetView.Reset();
+            m_SharpenTexture.Reset();
+            m_SharpenConstantBuffer.Reset();
+            m_SharpenPixelShader.Reset();
+        }
+    }
 }
 
 bool D3D11VARenderer::setupSharpenResources()
@@ -1944,6 +1982,13 @@ bool D3D11VARenderer::setupSharpenResources()
 
 void D3D11VARenderer::renderSharpenPass()
 {
+    if (m_SharpenConstantsDirty) {
+        const float constants[4] = { m_SharpenStrength, 0.0f, 0.0f, 0.0f };
+        m_RenderDeviceContext->UpdateSubresource(m_SharpenConstantBuffer.Get(), 0, nullptr, constants, 0, 0);
+        m_SharpenConstantsDirty = false;
+    }
+    m_RenderDeviceContext->PSSetConstantBuffers(1, 1, m_SharpenConstantBuffer.GetAddressOf());
+
     UINT stride = sizeof(VERTEX);
     UINT offset = 0;
     m_RenderDeviceContext->IASetVertexBuffers(0, 1, m_SharpenVertexBuffer.GetAddressOf(), &stride, &offset);

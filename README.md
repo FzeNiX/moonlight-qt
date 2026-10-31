@@ -20,6 +20,115 @@ You can follow development on our [Discord server](https://moonlight-stream.org/
  - Gamepad support with force feedback and motion controls for up to 16 players
  - Support for both pointer capture (for games) and direct mouse control (for remote desktop)
  - Support for passing system-wide keyboard shortcuts like Alt+Tab to the host
+
+## Additions in this fork
+
+This fork adds the following on top of upstream Moonlight PC. Builds for every platform are available from this repository's [GitHub Actions](https://github.com/FzeNiX/moonlight-qt/actions) (open a run and download from **Artifacts**).
+
+### Performance stats overlay
+- The stats are drawn on a translucent dark panel with light text, so they stay readable on bright and dark scenes.
+- Three layouts: **Full** (every statistic with descriptions), **Compact** (a few short, aligned lines) and **Mini** (a single line).
+- The overlay can sit in the **top left** or **top right** corner.
+- **Full** and **Compact** include a **frame time graph** with two lines: `net` is the interval between frames arriving from the network (shows Wi-Fi jitter and lost frames), and `display` is the interval between frames being shown (shows V-Sync misses and client-side stutter). The legend shows the worst value of each line, and a dotted line marks the target frame interval.
+- Settings: **Settings → Advanced Settings** (stats layout and position).
+
+### Image quality
+- **Video sharpening** using AMD FidelityFX Super Resolution 1.0 RCAS, which restores detail softened by video compression.
+- **Brightness, contrast and saturation** adjustments, for example when the stream looks more washed out than the host's screen. These are folded into the YUV→RGB conversion, so they add no rendering cost.
+- Settings: **Settings → Basic Settings**. Both can also be changed live while streaming from the stream menu (see below).
+- Renderer support:
+
+  | Renderer | Sharpening | Color adjustments |
+  |---|---|---|
+  | Direct3D 11 (Windows default) | ✅ | ✅ |
+  | Vulkan / libplacebo (macOS default, Linux HDR) | ✅ | ✅ |
+  | EGL (Linux SDR default) | ❌ | ✅ |
+  | Others (DXVA2, VAAPI/VDPAU/DRM direct, Metal, AVSampleBufferDisplayLayer) | ❌ | ❌ |
+
+  On Linux, enabling sharpening prefers the Vulkan renderer.
+
+### In-stream menu
+Press **Ctrl+Alt+Shift+A** while streaming to open the stream menu. While it is open, the mouse is released and mouse/keyboard input goes to the menu instead of the host.
+- **Sliders** for sharpness, brightness, contrast and saturation. Drag or click a slider, or scroll over a row to step it. Changes apply instantly to the current stream only and are not saved. **Reset** restores the values from your settings.
+- **Clipboard sync** with [Apollo](https://github.com/ClassicOldSong/Apollo) hosts: send this PC's clipboard to the host, or copy the host's clipboard to this PC (see [Apollo hosts](#apollo-hosts)).
+- **Connected controllers**, with their battery or wired status and the controller type reported to the host.
+- Settings the current renderer can't apply are shown as unavailable.
+
+| Key (menu open) | Action |
+|---|---|
+| Up / Down | Select a slider or button |
+| Left / Right | Adjust the selected slider |
+| Enter / Space | Activate the selected button |
+| R | Reset the sliders to your settings |
+| Esc (or click outside the menu) | Close the menu |
+
+### Per-PC settings
+Right-click a PC (or open its menu) and choose **PC Settings**:
+- **Preferred address**: Automatic, Local network, Remote/public IP, IPv6, or the manually added address/DDNS name. The preferred address is tried first when connecting, and Moonlight falls back to the other known addresses if it doesn't respond. To use a DDNS name, add the PC again with **Add PC** using that name; Moonlight merges it into the existing PC.
+- **Custom stream settings for this PC**, which replace the global settings for streams from that PC: resolution (including 16:10, 21:9 and 32:9 presets, or a custom size), frame rate, bitrate (or automatic for the chosen resolution and frame rate), display mode, controller type, Apollo virtual display and render scale, HDR, remote desktop mouse mode, performance stats, sharpening and color adjustments.
+
+The global settings are never changed by a PC's custom settings. Streams started from the command line keep using their command-line options, but the preferred address still applies.
+
+### Controllers
+- **Controller type sent to host**: Automatic, Xbox, or PlayStation (DualShock 4). When the host's gamepad setting is `auto` (the default in Sunshine and Apollo), the host emulates the controller type the client reports. Choosing Xbox also hides motion and touchpad support, which would otherwise make the host pick a DualShock 4. Windows hosts can emulate Xbox 360 and DualShock 4 controllers.
+- Settings: **Settings → Gamepad Settings**, or per PC in **PC Settings**.
+
+### Apollo hosts
+[Apollo](https://github.com/ClassicOldSong/Apollo) is a Sunshine fork with extra host features. This fork supports:
+- **Virtual display**: Apollo creates a virtual monitor that matches this PC's resolution and frame rate for the stream, then removes it afterwards. No dummy plug or resolution scripts are needed on the host. Requires a Windows host. Setting: **Settings → Host Settings**, or per PC.
+- **Host render scale** (50–200%): Apollo renders the host display at this scale of the stream resolution, then encodes it at the stream resolution. Above 100% supersamples for a sharper image; below 100% reduces the host's GPU load. Setting: **Settings → Host Settings**, or per PC.
+- **Clipboard sync** from the in-stream menu. In Apollo's web UI, grant this client the clipboard read/set permissions.
+- **Permission awareness**: Apollo grants full permissions only to the first paired client, while later clients can only list apps and view streams. Moonlight now:
+  - warns before streaming when Apollo hasn't allowed this PC to launch apps or send keyboard, mouse or controller input;
+  - explains permission problems when Apollo rejects a launch;
+  - shows the granted and missing permissions, plus the virtual display status, in the PC's **View Details**;
+  - greys out the clipboard buttons when the matching permission is missing.
+
+Grant permissions for each client in Apollo's web UI.
+
+### Keyboard shortcuts
+All shortcuts use **Ctrl+Alt+Shift** plus a key while streaming. Shortcuts added by this fork are marked with ★.
+
+| Shortcut | Action |
+|---|---|
+| Ctrl+Alt+Shift+Q | End the stream |
+| Ctrl+Alt+Shift+E | End the stream and exit Moonlight |
+| Ctrl+Alt+Shift+Z | Release / recapture the mouse and keyboard |
+| Ctrl+Alt+Shift+X | Toggle full-screen |
+| Ctrl+Alt+Shift+D | Minimize the stream window |
+| Ctrl+Alt+Shift+S | Show / hide performance stats |
+| ★ Ctrl+Alt+Shift+O | Cycle the stats layout: Full → Compact → Mini |
+| ★ Ctrl+Alt+Shift+P | Move the stats overlay between top left and top right |
+| ★ Ctrl+Alt+Shift+A | Open / close the in-stream menu |
+| Ctrl+Alt+Shift+M | Toggle mouse mode (games / remote desktop) |
+| Ctrl+Alt+Shift+C | Show / hide the local cursor (remote desktop mouse mode) |
+| Ctrl+Alt+Shift+L | Toggle confining the mouse to the stream window |
+| Ctrl+Alt+Shift+K | Toggle capturing system shortcuts such as Alt+Tab |
+| Ctrl+Alt+Shift+V | Type the clipboard's text on the host |
+
+### Gamepad shortcuts
+Hold the buttons together while streaming. On Xbox controllers, Select is View, Start is Menu, and L1/R1 are LB/RB.
+
+| Buttons | Action |
+|---|---|
+| Start+Select+L1+R1 | End the stream |
+| Select+L1+R1+X | Show / hide performance stats |
+| ★ Select+L1+R1+Y | Cycle the stats layout |
+| ★ Select+L1+R1+B | Move the stats overlay between top left and top right |
+| Hold Start | Toggle controller mouse mode (if enabled in settings) |
+
+### New command-line options
+For `moonlight stream`:
+
+| Option | Values |
+|---|---|
+| `--performance-overlay-mode` | `full`, `compact`, `mini` |
+| `--performance-overlay-position` | `left`, `right` |
+| `--video-sharpening` / `--no-video-sharpening` | |
+| `--video-sharpness` | `0`–`100` |
+| `--controller-type` | `auto`, `xbox`, `playstation` |
+| `--virtual-display` / `--no-virtual-display` | Apollo hosts |
+| `--render-scale` | `50`–`200` (Apollo hosts) |
  
 ## Downloads
 - [Windows, macOS, and Steam Link](https://github.com/moonlight-stream/moonlight-qt/releases)

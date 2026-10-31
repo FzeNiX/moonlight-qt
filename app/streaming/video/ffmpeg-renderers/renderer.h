@@ -434,6 +434,33 @@ public:
         for (int i = 3; i < 9; i++) {
             cscMatrix[i] *= uvScale;
         }
+
+        // Fold the user's color adjustments into the matrix and offsets,
+        // so they cost nothing extra at render time. This matches libplacebo's
+        // pl_color_adjustment: rgb = contrast * (matrix * yuv) + brightness,
+        // with saturation scaling only the chroma contribution.
+        for (int i = 3; i < 9; i++) {
+            cscMatrix[i] *= m_ColorAdjustments.saturation;
+        }
+        for (int i = 0; i < 9; i++) {
+            cscMatrix[i] *= m_ColorAdjustments.contrast;
+        }
+
+        // Brightness is an RGB offset, which can be expressed as a luma offset
+        // because the luma column of the matrix contributes equally to R, G, and B.
+        if (cscMatrix[0] != 0.0f) {
+            offsets[0] -= m_ColorAdjustments.brightness / cscMatrix[0];
+        }
+    }
+
+    void setColorAdjustments(const VIDEO_COLOR_ADJUSTMENTS& adjustments) {
+        m_ColorAdjustments = adjustments;
+    }
+
+    bool hasColorAdjustments() {
+        return m_ColorAdjustments.brightness != 0.0f ||
+               m_ColorAdjustments.contrast != 1.0f ||
+               m_ColorAdjustments.saturation != 1.0f;
     }
 
     void getFrameChromaCositingOffsets(const AVFrame* frame, std::array<float, 2> &chromaOffsets) {
@@ -557,6 +584,7 @@ public:
 
 protected:
     InitFailureReason m_InitFailureReason = InitFailureReason::Unknown;
+    VIDEO_COLOR_ADJUSTMENTS m_ColorAdjustments = { 0.0f, 1.0f, 1.0f };
 
 private:
     RendererType m_Type;

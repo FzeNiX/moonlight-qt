@@ -33,6 +33,13 @@ typedef struct _VIDEO_STATS {
     uint64_t measurementStartUs;               // microseconds
 } VIDEO_STATS, *PVIDEO_STATS;
 
+// User color adjustments applied during YUV->RGB conversion
+typedef struct _VIDEO_COLOR_ADJUSTMENTS {
+    float brightness; // Added to RGB output. 0.0 = neutral
+    float contrast;   // RGB output gain. 1.0 = neutral
+    float saturation; // Chroma gain. 1.0 = neutral, 0.0 = grayscale
+} VIDEO_COLOR_ADJUSTMENTS;
+
 typedef struct _DECODER_PARAMETERS {
     SDL_Window* window;
     StreamingPreferences::VideoDecoderSelection vds;
@@ -49,6 +56,9 @@ typedef struct _DECODER_PARAMETERS {
     // FSR RCAS sharpening strength in [0, 1], or 0 to disable sharpening.
     // Only honored by renderers with a shader-based presentation path.
     float sharpness;
+
+    // Only honored by renderers that perform their own YUV->RGB conversion
+    VIDEO_COLOR_ADJUSTMENTS colorAdjustments;
 } DECODER_PARAMETERS, *PDECODER_PARAMETERS;
 
 #define WINDOW_STATE_CHANGE_SIZE 0x01

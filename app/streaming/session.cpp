@@ -296,8 +296,15 @@ bool Session::chooseDecoder(StreamingPreferences::VideoDecoderSelection vds,
     params.enableFramePacing = enableFramePacing;
     params.testOnly = testOnly;
     params.sharpness = 0.0f;
-    if (!testOnly && s_ActiveSession != nullptr && s_ActiveSession->m_Preferences->videoSharpening) {
-        params.sharpness = s_ActiveSession->m_Preferences->videoSharpness / 100.0f;
+    params.colorAdjustments = { 0.0f, 1.0f, 1.0f };
+    if (!testOnly && s_ActiveSession != nullptr) {
+        StreamingPreferences* prefs = s_ActiveSession->m_Preferences;
+        if (prefs->videoSharpening) {
+            params.sharpness = prefs->videoSharpness / 100.0f;
+        }
+        params.colorAdjustments.brightness = prefs->colorBrightness / 100.0f;
+        params.colorAdjustments.contrast = prefs->colorContrast / 100.0f;
+        params.colorAdjustments.saturation = prefs->colorSaturation / 100.0f;
     }
     params.vds = vds;
     params.renderer = renderer;

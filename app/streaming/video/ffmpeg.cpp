@@ -325,6 +325,8 @@ bool FFmpegVideoDecoder::initializeRendererInternal(IFFmpegRenderer* renderer, P
         return false;
     }
 
+    renderer->setColorAdjustments(params->colorAdjustments);
+
     if (!renderer->initialize(params)) {
         if (renderer->getInitFailureReason() == IFFmpegRenderer::InitFailureReason::NoSoftwareSupport) {
             m_FailedRenderers.insert(renderer->getRendererType());

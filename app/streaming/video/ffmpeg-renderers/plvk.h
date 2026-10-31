@@ -107,6 +107,7 @@ private:
     pl_renderer m_Renderer = nullptr;
     pl_render_params m_RenderParams = {};
     const pl_hook* m_SharpenHook = nullptr;
+    pl_color_adjustment m_ColorAdjustment = {};
     pl_tex m_Textures[PL_MAX_PLANES] = {};
     pl_color_space m_LastColorspace = {};
 

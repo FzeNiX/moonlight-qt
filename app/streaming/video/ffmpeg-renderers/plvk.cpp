@@ -598,6 +598,18 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
     }
 
     m_RenderParams = pl_render_fast_params;
+
+    // libplacebo applies these during YUV->RGB decoding, matching the other renderers
+    m_ColorAdjustment = pl_color_adjustment_neutral;
+    m_ColorAdjustment.brightness = m_ColorAdjustments.brightness;
+    m_ColorAdjustment.contrast = m_ColorAdjustments.contrast;
+    m_ColorAdjustment.saturation = m_ColorAdjustments.saturation;
+    m_RenderParams.color_adjustment = &m_ColorAdjustment;
+    if (hasColorAdjustments()) {
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                    "Color adjustments: brightness %.2f, contrast %.2f, saturation %.2f",
+                    m_ColorAdjustment.brightness, m_ColorAdjustment.contrast, m_ColorAdjustment.saturation);
+    }
     if (params->sharpness > 0 && !params->testOnly) {
         // Sharpening is optional, so failure here is not fatal
         if (createSharpenHook(params->sharpness)) {

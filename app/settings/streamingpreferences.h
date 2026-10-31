@@ -161,6 +161,9 @@ public:
     Q_PROPERTY(PerformanceOverlayPosition performanceOverlayPosition MEMBER performanceOverlayPosition NOTIFY performanceOverlayPositionChanged)
     Q_PROPERTY(bool videoSharpening MEMBER videoSharpening NOTIFY videoSharpeningChanged)
     Q_PROPERTY(int videoSharpness MEMBER videoSharpness NOTIFY videoSharpnessChanged)
+    Q_PROPERTY(int colorBrightness MEMBER colorBrightness NOTIFY colorAdjustmentsChanged)
+    Q_PROPERTY(int colorContrast MEMBER colorContrast NOTIFY colorAdjustmentsChanged)
+    Q_PROPERTY(int colorSaturation MEMBER colorSaturation NOTIFY colorAdjustmentsChanged)
     Q_PROPERTY(AudioConfig audioConfig MEMBER audioConfig NOTIFY audioConfigChanged)
     Q_PROPERTY(VideoCodecConfig videoCodecConfig MEMBER videoCodecConfig NOTIFY videoCodecConfigChanged)
     Q_PROPERTY(bool enableHdr MEMBER enableHdr NOTIFY enableHdrChanged)
@@ -207,6 +210,9 @@ public:
     PerformanceOverlayPosition performanceOverlayPosition;
     bool videoSharpening;
     int videoSharpness; // 0-100
+    int colorBrightness; // -30 to 30 (percent of full scale), 0 = neutral
+    int colorContrast; // 50 to 150 (percent), 100 = neutral
+    int colorSaturation; // 0 to 200 (percent), 100 = neutral
     bool swapMouseButtons;
     bool muteOnFocusLoss;
     bool backgroundGamepad;
@@ -258,6 +264,7 @@ signals:
     void performanceOverlayPositionChanged();
     void videoSharpeningChanged();
     void videoSharpnessChanged();
+    void colorAdjustmentsChanged();
     void mouseButtonsChanged();
     void muteOnFocusLossChanged();
     void backgroundGamepadChanged();

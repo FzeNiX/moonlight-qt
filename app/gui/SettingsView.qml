@@ -921,6 +921,135 @@ Flickable {
                         anchors.verticalCenter: parent.verticalCenter
                     }
                 }
+
+                Row {
+                    width: parent.width
+                    spacing: 5
+
+                    Label {
+                        id: colorAdjustTitle
+                        text: qsTr("Color adjustments")
+                        font.pointSize: 12
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        ToolTip.delay: 1000
+                        ToolTip.timeout: 10000
+                        ToolTip.visible: colorAdjustHover.containsMouse
+                        ToolTip.text: qsTr("Adjusts the stream's colors on this PC, for example if they look more washed out than on the host.") + "\n\n" +
+                                      qsTr("Supported by the Direct3D 11 renderer on Windows, and the Vulkan and EGL renderers on Linux and macOS. Changes apply to the next stream.") + "\n\n" +
+                                      qsTr("Tip: washed out blacks are often caused by HDR being enabled on this PC's desktop while streaming SDR, or by a full/limited color range mismatch.")
+
+                        MouseArea {
+                            id: colorAdjustHover
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            acceptedButtons: Qt.NoButton
+                        }
+                    }
+
+                    Button {
+                        text: qsTr("Reset")
+                        visible: brightnessSlider.value !== 0 || contrastSlider.value !== 100 || saturationSlider.value !== 100
+                        onClicked: {
+                            brightnessSlider.value = 0
+                            contrastSlider.value = 100
+                            saturationSlider.value = 100
+                        }
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 5
+
+                    Label {
+                        text: qsTr("Brightness")
+                        width: 100
+                        font.pointSize: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Slider {
+                        id: brightnessSlider
+                        from: -30
+                        to: 30
+                        stepSize: 1
+                        width: Math.min(300, parent.width - 180)
+                        value: StreamingPreferences.colorBrightness
+
+                        onValueChanged: {
+                            StreamingPreferences.colorBrightness = value
+                        }
+                    }
+
+                    Label {
+                        text: (brightnessSlider.value > 0 ? "+" : "") + brightnessSlider.value + "%"
+                        font.pointSize: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 5
+
+                    Label {
+                        text: qsTr("Contrast")
+                        width: 100
+                        font.pointSize: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Slider {
+                        id: contrastSlider
+                        from: 50
+                        to: 150
+                        stepSize: 1
+                        width: Math.min(300, parent.width - 180)
+                        value: StreamingPreferences.colorContrast
+
+                        onValueChanged: {
+                            StreamingPreferences.colorContrast = value
+                        }
+                    }
+
+                    Label {
+                        text: contrastSlider.value + "%"
+                        font.pointSize: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 5
+
+                    Label {
+                        text: qsTr("Saturation")
+                        width: 100
+                        font.pointSize: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Slider {
+                        id: saturationSlider
+                        from: 0
+                        to: 200
+                        stepSize: 1
+                        width: Math.min(300, parent.width - 180)
+                        value: StreamingPreferences.colorSaturation
+
+                        onValueChanged: {
+                            StreamingPreferences.colorSaturation = value
+                        }
+                    }
+
+                    Label {
+                        text: saturationSlider.value + "%"
+                        font.pointSize: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
             }
         }
 

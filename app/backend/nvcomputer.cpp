@@ -213,6 +213,14 @@ NvComputer::NvComputer(NvHTTP& http, QString serverInfo)
     this->appVersion = NvHTTP::getXmlString(serverInfo, "appversion");
     this->gfeVersion = NvHTTP::getXmlString(serverInfo, "GfeVersion");
     this->gpuModel = NvHTTP::getXmlString(serverInfo, "gputype");
+
+    // Apollo extensions. Permissions are only reported for HTTPS requests from a paired client.
+    QString permission = NvHTTP::getXmlString(serverInfo, "Permission");
+    bool permissionOk = false;
+    quint32 permissionBits = permission.toUInt(&permissionOk);
+    this->apolloPermissions = permissionOk ? (qint64)permissionBits : -1;
+    this->virtualDisplayCapable = NvHTTP::getXmlString(serverInfo, "VirtualDisplayCapable") == "true";
+    this->virtualDisplayDriverReady = NvHTTP::getXmlString(serverInfo, "VirtualDisplayDriverReady") == "true";
     this->activeAddress = http.address();
     this->state = NvComputer::CS_ONLINE;
     this->pendingQuit = false;
@@ -597,6 +605,9 @@ bool NvComputer::update(const NvComputer& that)
     ASSIGN_IF_CHANGED(isNvidiaServerSoftware);
     ASSIGN_IF_CHANGED(maxLumaPixelsHEVC);
     ASSIGN_IF_CHANGED(gpuModel);
+    ASSIGN_IF_CHANGED(apolloPermissions);
+    ASSIGN_IF_CHANGED(virtualDisplayCapable);
+    ASSIGN_IF_CHANGED(virtualDisplayDriverReady);
     ASSIGN_IF_CHANGED_AND_NONNULL(serverCert);
     ASSIGN_IF_CHANGED_AND_NONEMPTY(displayModes);
 

@@ -117,6 +117,33 @@ public:
     QString gpuModel;
     bool isSupportedServerVersion;
 
+    // Apollo host extensions (not persisted). apolloPermissions is -1 if the host
+    // didn't report permissions (GFE, Sunshine, or an unauthenticated query).
+    qint64 apolloPermissions = -1;
+    bool virtualDisplayCapable = false;
+    bool virtualDisplayDriverReady = false;
+
+    // Apollo permission bits (see Apollo's src/crypto.h)
+    enum ApolloPermission : quint32 {
+        APOLLO_PERM_INPUT_CONTROLLER = 1u << 8,
+        APOLLO_PERM_INPUT_TOUCH      = 1u << 9,
+        APOLLO_PERM_INPUT_PEN        = 1u << 10,
+        APOLLO_PERM_INPUT_MOUSE      = 1u << 11,
+        APOLLO_PERM_INPUT_KEYBOARD   = 1u << 12,
+        APOLLO_PERM_CLIPBOARD_SET    = 1u << 16,
+        APOLLO_PERM_CLIPBOARD_READ   = 1u << 17,
+        APOLLO_PERM_SERVER_CMD       = 1u << 20,
+        APOLLO_PERM_LIST             = 1u << 24,
+        APOLLO_PERM_VIEW             = 1u << 25,
+        APOLLO_PERM_LAUNCH           = 1u << 26,
+    };
+
+    // True if the host reported Apollo permissions and the given one is missing
+    bool isApolloPermissionMissing(quint32 permission) const
+    {
+        return apolloPermissions >= 0 && !((quint32)apolloPermissions & permission);
+    }
+
     // Persisted traits
     NvAddress localAddress;
     NvAddress remoteAddress;

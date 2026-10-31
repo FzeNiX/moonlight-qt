@@ -78,6 +78,8 @@ NavigableDialog {
             enableHdr: StreamingPreferences.enableHdr,
             absoluteMouseMode: StreamingPreferences.absoluteMouseMode,
             controllerTypeOverride: StreamingPreferences.controllerTypeOverride,
+            useVirtualDisplay: StreamingPreferences.useVirtualDisplay,
+            renderScale: StreamingPreferences.renderScale,
             videoSharpening: StreamingPreferences.videoSharpening,
             videoSharpness: StreamingPreferences.videoSharpness,
             colorBrightness: StreamingPreferences.colorBrightness,
@@ -114,6 +116,8 @@ NavigableDialog {
         hdrCheck.checked = p.enableHdr === true || p.enableHdr === "true"
         mouseCheck.checked = p.absoluteMouseMode === true || p.absoluteMouseMode === "true"
         selectByValue(controllerTypeComboBox, controllerTypeModel, Number(p.controllerTypeOverride))
+        virtualDisplayCheck.checked = p.useVirtualDisplay === true || p.useVirtualDisplay === "true"
+        selectByValue(renderScaleComboBox, renderScaleModel, Number(p.renderScale))
         sharpenCheck.checked = p.videoSharpening === true || p.videoSharpening === "true"
         sharpnessSlider.value = Number(p.videoSharpness)
         brightnessSlider.value = Number(p.colorBrightness)
@@ -143,6 +147,8 @@ NavigableDialog {
             enableHdr: hdrCheck.checked,
             absoluteMouseMode: mouseCheck.checked,
             controllerTypeOverride: Math.round(controllerTypeModel.get(controllerTypeComboBox.currentIndex).val),
+            useVirtualDisplay: virtualDisplayCheck.checked,
+            renderScale: Math.round(renderScaleModel.get(renderScaleComboBox.currentIndex).val),
             videoSharpening: sharpenCheck.checked,
             videoSharpness: Math.round(sharpnessSlider.value),
             colorBrightness: Math.round(brightnessSlider.value),
@@ -165,6 +171,17 @@ NavigableDialog {
         ListElement { text: qsTr("Automatic"); val: StreamingPreferences.CTO_AUTO }
         ListElement { text: qsTr("Xbox"); val: StreamingPreferences.CTO_XBOX }
         ListElement { text: qsTr("PlayStation (DualShock 4)"); val: StreamingPreferences.CTO_PLAYSTATION }
+    }
+
+    ListModel {
+        id: renderScaleModel
+        ListElement { text: "50%"; val: 50 }
+        ListElement { text: "75%"; val: 75 }
+        ListElement { text: "100%"; val: 100 }
+        ListElement { text: "125%"; val: 125 }
+        ListElement { text: "150%"; val: 150 }
+        ListElement { text: "175%"; val: 175 }
+        ListElement { text: "200%"; val: 200 }
     }
 
     ListModel {
@@ -311,6 +328,27 @@ NavigableDialog {
                     id: controllerTypeComboBox
                     Layout.fillWidth: true
                     model: controllerTypeModel
+                    textRole: "text"
+                }
+
+                Label { text: qsTr("Virtual display"); Layout.alignment: Qt.AlignTop; Layout.topMargin: 12 }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    CheckBox { id: virtualDisplayCheck; text: qsTr("Use an Apollo virtual display") }
+                    Label {
+                        Layout.fillWidth: true
+                        font.pointSize: 9
+                        wrapMode: Text.Wrap
+                        text: hostSettings.virtualDisplayStatus ? hostSettings.virtualDisplayStatus : ""
+                        visible: text !== ""
+                    }
+                }
+
+                Label { text: qsTr("Render scale") }
+                ComboBox {
+                    id: renderScaleComboBox
+                    Layout.fillWidth: true
+                    model: renderScaleModel
                     textRole: "text"
                 }
 

@@ -175,6 +175,8 @@ public:
     Q_PROPERTY(PerformanceOverlayPosition performanceOverlayPosition MEMBER performanceOverlayPosition NOTIFY performanceOverlayPositionChanged)
     Q_PROPERTY(bool videoSharpening MEMBER videoSharpening NOTIFY videoSharpeningChanged)
     Q_PROPERTY(ControllerTypeOverride controllerTypeOverride MEMBER controllerTypeOverride NOTIFY controllerTypeOverrideChanged)
+    Q_PROPERTY(bool useVirtualDisplay MEMBER useVirtualDisplay NOTIFY useVirtualDisplayChanged)
+    Q_PROPERTY(int renderScale MEMBER renderScale NOTIFY renderScaleChanged)
     Q_PROPERTY(int videoSharpness MEMBER videoSharpness NOTIFY videoSharpnessChanged)
     Q_PROPERTY(int colorBrightness MEMBER colorBrightness NOTIFY colorAdjustmentsChanged)
     Q_PROPERTY(int colorContrast MEMBER colorContrast NOTIFY colorAdjustmentsChanged)
@@ -225,6 +227,8 @@ public:
     PerformanceOverlayPosition performanceOverlayPosition;
     bool videoSharpening;
     ControllerTypeOverride controllerTypeOverride;
+    bool useVirtualDisplay; // Ask Apollo hosts to stream from a virtual display matching this client
+    int renderScale; // Apollo host render scale in percent (100 = native)
     int videoSharpness; // 0-100
     int colorBrightness; // -30 to 30 (percent of full scale), 0 = neutral
     int colorContrast; // 50 to 150 (percent), 100 = neutral
@@ -280,6 +284,8 @@ signals:
     void performanceOverlayPositionChanged();
     void videoSharpeningChanged();
     void controllerTypeOverrideChanged();
+    void useVirtualDisplayChanged();
+    void renderScaleChanged();
     void videoSharpnessChanged();
     void colorAdjustmentsChanged();
     void mouseButtonsChanged();

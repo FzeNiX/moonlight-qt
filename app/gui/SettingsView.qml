@@ -1186,6 +1186,70 @@ Flickable {
                     ToolTip.visible: hovered
                     ToolTip.text: qsTr("This will close the app or game you are streaming when you end your stream. You will lose any unsaved progress!")
                 }
+
+                CheckBox {
+                    id: virtualDisplayCheck
+                    width: parent.width
+                    text: qsTr("Use a virtual display on Apollo hosts")
+                    font.pointSize: 12
+                    checked: StreamingPreferences.useVirtualDisplay
+                    onCheckedChanged: {
+                        StreamingPreferences.useVirtualDisplay = checked
+                    }
+
+                    ToolTip.delay: 1000
+                    ToolTip.timeout: 10000
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Apollo creates a virtual monitor that matches this PC's resolution and frame rate for the stream, and removes it afterwards. No dummy plug or resolution changes are needed on the host.") + "\n\n" +
+                                  qsTr("Requires an Apollo host on Windows. Other hosts ignore this option.")
+                }
+
+                Row {
+                    spacing: 5
+                    width: parent.width
+
+                    Label {
+                        text: qsTr("Host render scale (Apollo):")
+                        font.pointSize: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    AutoResizingComboBox {
+                        id: renderScaleComboBox
+                        textRole: "text"
+                        model: ListModel {
+                            id: renderScaleListModel
+                            ListElement { text: "50%"; val: 50 }
+                            ListElement { text: "75%"; val: 75 }
+                            ListElement { text: "100%"; val: 100 }
+                            ListElement { text: "125%"; val: 125 }
+                            ListElement { text: "150%"; val: 150 }
+                            ListElement { text: "175%"; val: 175 }
+                            ListElement { text: "200%"; val: 200 }
+                        }
+
+                        Component.onCompleted: {
+                            currentIndex = 2
+                            for (var i = 0; i < renderScaleListModel.count; i++) {
+                                if (StreamingPreferences.renderScale === renderScaleListModel.get(i).val) {
+                                    currentIndex = i
+                                    break
+                                }
+                            }
+                        }
+
+                        // ::onActivated must be used, as it only listens for when the index is changed by a human
+                        onActivated: {
+                            StreamingPreferences.renderScale = renderScaleListModel.get(currentIndex).val
+                        }
+
+                        ToolTip.delay: 1000
+                        ToolTip.timeout: 10000
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Apollo renders the host display at this scale of your stream resolution, then encodes it at your stream resolution.") + "\n\n" +
+                                      qsTr("Above 100% supersamples for a sharper image at a higher GPU cost on the host. Below 100% reduces the host's GPU load.")
+                    }
+                }
             }
         }
 

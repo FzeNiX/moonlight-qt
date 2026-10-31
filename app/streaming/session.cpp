@@ -817,6 +817,11 @@ void Session::sendClipboardToHost()
         return;
     }
 
+    if (m_Computer->isApolloPermissionMissing(NvComputer::APOLLO_PERM_CLIPBOARD_SET)) {
+        m_OverlayManager.showDebugNotification("Clipboard: Apollo hasn't given this PC the \"Set clipboard\" permission", 4000);
+        return;
+    }
+
     QString text;
     char* clipboardText = SDL_HasClipboardText() ? SDL_GetClipboardText() : nullptr;
     if (clipboardText != nullptr) {
@@ -836,6 +841,11 @@ void Session::sendClipboardToHost()
 void Session::fetchClipboardFromHost()
 {
     if (m_ClipboardBusy) {
+        return;
+    }
+
+    if (m_Computer->isApolloPermissionMissing(NvComputer::APOLLO_PERM_CLIPBOARD_READ)) {
+        m_OverlayManager.showDebugNotification("Clipboard: Apollo hasn't given this PC the \"Read clipboard\" permission", 4000);
         return;
     }
 
@@ -973,14 +983,16 @@ void Session::updateVideoAdjustmentMenu()
 
         Overlay::OverlayMenuItem send;
         send.kind = Overlay::OverlayMenuItem::Button;
-        send.label = "Send this PC's clipboard to host";
-        send.enabled = !m_ClipboardBusy;
+        bool canSet = !m_Computer->isApolloPermissionMissing(NvComputer::APOLLO_PERM_CLIPBOARD_SET);
+        send.label = canSet ? "Send this PC's clipboard to host" : "Send clipboard to host (not permitted)";
+        send.enabled = !m_ClipboardBusy && canSet;
         addItem(send, MA_SEND_CLIPBOARD);
 
         Overlay::OverlayMenuItem get;
         get.kind = Overlay::OverlayMenuItem::Button;
-        get.label = "Copy host's clipboard to this PC";
-        get.enabled = !m_ClipboardBusy;
+        bool canRead = !m_Computer->isApolloPermissionMissing(NvComputer::APOLLO_PERM_CLIPBOARD_READ);
+        get.label = canRead ? "Copy host's clipboard to this PC" : "Copy host's clipboard (not permitted)";
+        get.enabled = !m_ClipboardBusy && canRead;
         addItem(get, MA_GET_CLIPBOARD);
     }
 
@@ -1575,6 +1587,43 @@ bool Session::validateLaunch(SDL_Window* testWindow)
 
     if (m_Preferences->absoluteMouseMode && !m_App.isAppCollectorGame) {
         emitLaunchWarning(tr("Your selection to enable remote desktop mouse mode may cause problems in games."));
+    }
+
+    // Apollo only grants full permissions to the first paired client, so newly paired
+    // clients commonly can't launch apps or send input until permissions are granted.
+    if (m_Computer->isApolloPermissionMissing(NvComputer::APOLLO_PERM_LAUNCH) && m_Computer->currentGameId == 0) {
+        emitLaunchWarning(tr("Apollo hasn't given this PC permission to launch apps. Grant \"Launch Apps\" for this client in Apollo's web UI if launching fails."));
+    }
+    if (m_Computer->isApolloPermissionMissing(NvComputer::APOLLO_PERM_VIEW)) {
+        emitLaunchWarning(tr("Apollo hasn't given this PC permission to view streams. Grant \"View Streams\" for this client in Apollo's web UI."));
+    }
+    {
+        QStringList missingInputs;
+        if (m_Computer->isApolloPermissionMissing(NvComputer::APOLLO_PERM_INPUT_KEYBOARD)) {
+            missingInputs << tr("keyboard");
+        }
+        if (m_Computer->isApolloPermissionMissing(NvComputer::APOLLO_PERM_INPUT_MOUSE)) {
+            missingInputs << tr("mouse");
+        }
+        if (m_Computer->isApolloPermissionMissing(NvComputer::APOLLO_PERM_INPUT_CONTROLLER)) {
+            missingInputs << tr("controller");
+        }
+        if (!missingInputs.isEmpty()) {
+            emitLaunchWarning(tr("Apollo will ignore %1 input from this PC. Grant the input permissions for this client in Apollo's web UI.")
+                              .arg(missingInputs.join(", ")));
+        }
+    }
+
+    if (m_Preferences->useVirtualDisplay && !m_Computer->isNvidiaServerSoftware) {
+        if (m_Computer->apolloPermissions < 0 && !m_Computer->virtualDisplayCapable) {
+            emitLaunchWarning(tr("Virtual display is enabled, but this host doesn't appear to be running Apollo."));
+        }
+        else if (!m_Computer->virtualDisplayCapable) {
+            emitLaunchWarning(tr("Apollo can't create virtual displays on this host (this requires a Windows host)."));
+        }
+        else if (!m_Computer->virtualDisplayDriverReady) {
+            emitLaunchWarning(tr("Apollo's virtual display driver isn't ready on the host. Apollo will try to start it, but the stream may use the existing display."));
+        }
     }
 
     if (m_Preferences->videoDecoderSelection == StreamingPreferences::VDS_FORCE_SOFTWARE) {
@@ -2220,6 +2269,17 @@ bool Session::startConnectionAsync()
 
     QString rtspSessionUrl;
 
+    // Apollo extensions (ignored by other Sunshine-based hosts)
+    QString extraLaunchArguments;
+    if (!m_Computer->isNvidiaServerSoftware) {
+        if (m_Preferences->useVirtualDisplay) {
+            extraLaunchArguments += "&virtualDisplay=1";
+        }
+        if (m_Preferences->renderScale != 100) {
+            extraLaunchArguments += "&scaleFactor=" + QString::number(m_Preferences->renderScale);
+        }
+    }
+
     try {
         NvHTTP http(m_Computer);
         http.startApp(m_Computer->currentGameId != 0 ? "resume" : "launch",
@@ -2229,9 +2289,17 @@ bool Session::startConnectionAsync()
                       m_Preferences->playAudioOnHost,
                       m_InputHandler->getAttachedGamepadMask(),
                       !m_Preferences->multiController,
-                      rtspSessionUrl);
+                      rtspSessionUrl,
+                      extraLaunchArguments);
     } catch (const GfeHttpResponseException& e) {
-        emit displayLaunchError(tr("Host returned error: %1").arg(e.toQString()));
+        if (e.getStatusCode() == 403 && m_Computer->apolloPermissions >= 0) {
+            // Apollo rejects launches from clients without the needed permissions
+            emit displayLaunchError(tr("Host returned error: %1").arg(e.toQString()) + "\n\n" +
+                                    tr("Apollo may not have given this PC permission to launch apps. Check this client's permissions in Apollo's web UI."));
+        }
+        else {
+            emit displayLaunchError(tr("Host returned error: %1").arg(e.toQString()));
+        }
         return false;
     } catch (const QtNetworkReplyException& e) {
         emit displayLaunchError(e.toQString());

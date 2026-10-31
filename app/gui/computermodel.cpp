@@ -1,6 +1,7 @@
 #include "computermodel.h"
 #include "settings/hostprofile.h"
 
+#include <QCoreApplication>
 #include <QThreadPool>
 
 ComputerModel::ComputerModel(QObject* object)
@@ -15,6 +16,64 @@ void ComputerModel::initialize(ComputerManager* computerManager)
             this, &ComputerModel::handlePairingCompleted);
 
     m_Computers = m_ComputerManager->getComputers();
+}
+
+// Apollo-specific details (permissions and virtual display), if the host reported them
+static QString apolloDetails(const NvComputer* computer)
+{
+    if (computer->apolloPermissions < 0 && !computer->virtualDisplayCapable) {
+        return QString();
+    }
+
+    QString details;
+    if (computer->apolloPermissions >= 0) {
+        static const struct {
+            quint32 bit;
+            const char* name;
+        } k_Permissions[] = {
+            { NvComputer::APOLLO_PERM_LIST, QT_TRANSLATE_NOOP("ComputerModel", "List apps") },
+            { NvComputer::APOLLO_PERM_VIEW, QT_TRANSLATE_NOOP("ComputerModel", "View streams") },
+            { NvComputer::APOLLO_PERM_LAUNCH, QT_TRANSLATE_NOOP("ComputerModel", "Launch apps") },
+            { NvComputer::APOLLO_PERM_INPUT_KEYBOARD, QT_TRANSLATE_NOOP("ComputerModel", "Keyboard") },
+            { NvComputer::APOLLO_PERM_INPUT_MOUSE, QT_TRANSLATE_NOOP("ComputerModel", "Mouse") },
+            { NvComputer::APOLLO_PERM_INPUT_CONTROLLER, QT_TRANSLATE_NOOP("ComputerModel", "Controller") },
+            { NvComputer::APOLLO_PERM_INPUT_TOUCH, QT_TRANSLATE_NOOP("ComputerModel", "Touch") },
+            { NvComputer::APOLLO_PERM_INPUT_PEN, QT_TRANSLATE_NOOP("ComputerModel", "Pen") },
+            { NvComputer::APOLLO_PERM_CLIPBOARD_READ, QT_TRANSLATE_NOOP("ComputerModel", "Read clipboard") },
+            { NvComputer::APOLLO_PERM_CLIPBOARD_SET, QT_TRANSLATE_NOOP("ComputerModel", "Set clipboard") },
+            { NvComputer::APOLLO_PERM_SERVER_CMD, QT_TRANSLATE_NOOP("ComputerModel", "Server commands") },
+        };
+
+        QStringList granted, missing;
+        for (const auto& permission : k_Permissions) {
+            QString name = QCoreApplication::translate("ComputerModel", permission.name);
+            if (computer->isApolloPermissionMissing(permission.bit)) {
+                missing << name;
+            }
+            else {
+                granted << name;
+            }
+        }
+
+        details += '\n' + QCoreApplication::translate("ComputerModel", "Apollo permissions: %1").arg(granted.isEmpty() ? QCoreApplication::translate("ComputerModel", "None") : granted.join(", "));
+        if (!missing.isEmpty()) {
+            details += '\n' + QCoreApplication::translate("ComputerModel", "Not permitted: %1").arg(missing.join(", "));
+        }
+    }
+
+    QString virtualDisplay;
+    if (!computer->virtualDisplayCapable) {
+        virtualDisplay = QCoreApplication::translate("ComputerModel", "Not supported");
+    }
+    else if (!computer->virtualDisplayDriverReady) {
+        virtualDisplay = QCoreApplication::translate("ComputerModel", "Driver not ready");
+    }
+    else {
+        virtualDisplay = QCoreApplication::translate("ComputerModel", "Available");
+    }
+    details += '\n' + QCoreApplication::translate("ComputerModel", "Virtual display: %1").arg(virtualDisplay);
+
+    return details;
 }
 
 QVariant ComputerModel::data(const QModelIndex& index, int role) const
@@ -81,7 +140,8 @@ QVariant ComputerModel::data(const QModelIndex& index, int role) const
                tr("MAC Address: %1").arg(computer->macAddress.isEmpty() ? tr("Unknown") : QString(computer->macAddress.toHex(':'))) + '\n' +
                tr("Pair State: %1").arg(pairState) + '\n' +
                tr("Running Game ID: %1").arg(computer->state == NvComputer::CS_ONLINE ? QString::number(computer->currentGameId) : tr("Unknown")) + '\n' +
-               tr("HTTPS Port: %1").arg(computer->state == NvComputer::CS_ONLINE ? QString::number(computer->activeHttpsPort) : tr("Unknown"));
+               tr("HTTPS Port: %1").arg(computer->state == NvComputer::CS_ONLINE ? QString::number(computer->activeHttpsPort) : tr("Unknown")) +
+               apolloDetails(computer);
     }
     default:
         return QVariant();
@@ -205,6 +265,19 @@ QVariantMap ComputerModel::getHostSettings(int computerIndex)
         result["remoteAddress"] = computer->remoteAddress.isNull() ? QString() : computer->remoteAddress.toString();
         result["ipv6Address"] = computer->ipv6Address.isNull() ? QString() : computer->ipv6Address.toString();
         result["manualAddress"] = computer->manualAddress.isNull() ? QString() : computer->manualAddress.toString();
+
+        // Apollo virtual display support, as last reported by the host
+        if (computer->virtualDisplayCapable) {
+            result["virtualDisplayStatus"] = computer->virtualDisplayDriverReady ?
+                        tr("This host supports virtual displays.") :
+                        tr("This host supports virtual displays, but its driver isn't ready right now.");
+        }
+        else if (computer->apolloPermissions >= 0) {
+            result["virtualDisplayStatus"] = tr("This Apollo host can't create virtual displays (Windows hosts only).");
+        }
+        else {
+            result["virtualDisplayStatus"] = tr("Requires an Apollo host.");
+        }
     }
 
     result["profileEnabled"] = HostProfile::isEnabled(uuid);

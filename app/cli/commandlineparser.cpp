@@ -384,6 +384,8 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
     parser.addChoiceOption("performance-overlay-position", "performance overlay position", m_PerfOverlayPositionMap.keys());
     parser.addToggleOption("video-sharpening", "FSR RCAS video sharpening");
     parser.addChoiceOption("controller-type", "controller type reported to the host", m_ControllerTypeMap.keys());
+    parser.addToggleOption("virtual-display", "Apollo virtual display");
+    parser.addValueOption("render-scale", "Apollo host render scale in percent (50-200)");
     parser.addValueOption("video-sharpness", "video sharpening strength (0-100)");
     parser.addToggleOption("hdr", "HDR streaming");
     parser.addToggleOption("yuv444", "YUV 4:4:4 sampling, if supported");
@@ -517,6 +519,18 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
     // Resolve --controller-type option
     if (parser.isSet("controller-type")) {
         preferences->controllerTypeOverride = mapValue(m_ControllerTypeMap, parser.getChoiceOptionValue("controller-type"));
+    }
+
+    // Resolve --virtual-display and --no-virtual-display options
+    preferences->useVirtualDisplay = parser.getToggleOptionValue("virtual-display", preferences->useVirtualDisplay);
+
+    // Resolve --render-scale option
+    if (parser.isSet("render-scale")) {
+        int scale = parser.getIntOption("render-scale");
+        if (!inRange(scale, 50, 200)) {
+            parser.showError("Render scale must be between 50 and 200");
+        }
+        preferences->renderScale = scale;
     }
 
     // Resolve --video-sharpening and --no-video-sharpening options

@@ -169,15 +169,11 @@ private:
 
     void notifyMouseEmulationMode(bool enabled);
 
-
-    // Live video adjustments while streaming (bound to hotkeys).
-
+    // Live video adjustments while streaming, through an on-screen menu.
     // These change only the current stream, not the saved settings.
-
+    void toggleVideoAdjustmentMenu();
     void selectVideoAdjustment(int direction);
-
     void changeVideoAdjustment(int steps);
-
     void resetVideoAdjustments();
 
     void updateOptimalWindowDisplayMode();
@@ -266,7 +262,11 @@ private:
     };
 
     void applyVideoAdjustments();
-    void showVideoAdjustmentStatus();
+    void setVideoAdjustment(int index, int value);
+    void updateVideoAdjustmentMenu();
+    void closeVideoAdjustmentMenu();
+    bool handleVideoAdjustmentMenuEvent(const SDL_Event* event);
+    bool windowToOverlayPoint(int windowX, int windowY, int* overlayX, int* overlayY);
 
     StreamingPreferences* m_Preferences;
     bool m_OwnsPreferences;
@@ -275,6 +275,9 @@ private:
     // (sharpness 0-100 where 0 is off, brightness/contrast/saturation in percent)
     int m_LiveVideoAdjustments[VA_MAX];
     VideoAdjustment m_SelectedVideoAdjustment;
+    bool m_VideoAdjustMenuOpen;
+    bool m_VideoAdjustMenuRestoreCapture;
+    int m_VideoAdjustMenuDragIndex;
     bool m_IsFullScreen;
     SupportedVideoFormatList m_SupportedVideoFormats; // Sorted in order of descending priority
     STREAM_CONFIGURATION m_StreamConfig;

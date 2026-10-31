@@ -3,12 +3,22 @@
 
 using namespace Overlay;
 
+// Menu metrics
+static const int k_MenuTrackWidth = 240;
+static const int k_MenuTrackHeight = 6;
+static const int k_MenuKnobWidth = 10;
+static const int k_MenuRowPadding = 10;
+static const int k_MenuColumnGap = 14;
+static const int k_MenuButtonPadX = 8;
+
+
 OverlayManager::OverlayManager() :
     m_DebugStatsEnabled(false),
     m_NotificationLock(0),
     m_NotificationTimer(0),
     m_GraphLock(0),
     m_GraphTargetFps(60),
+    m_MenuOpen(false),
     m_Renderer(nullptr),
     m_FontData(Path::readDataFile("ModeSeven.ttf"))
 {
@@ -16,6 +26,7 @@ OverlayManager::OverlayManager() :
     memset(m_GraphSamples, 0, sizeof(m_GraphSamples));
     memset(m_GraphNext, 0, sizeof(m_GraphNext));
     memset(m_GraphCount, 0, sizeof(m_GraphCount));
+    m_MenuLayout.valid = false;
 
     // Near-white text on a translucent dark panel stays readable on both
     // bright and dark game content (unlike the old unpadded yellow text).
@@ -109,7 +120,7 @@ void OverlayManager::updateDebugVisibility()
     bool hasNotification = !m_NotificationText.isEmpty();
     SDL_AtomicUnlock(&m_NotificationLock);
 
-    m_Overlays[OverlayDebug].enabled = m_DebugStatsEnabled || hasNotification;
+    m_Overlays[OverlayDebug].enabled = m_DebugStatsEnabled || hasNotification || m_MenuOpen;
 
     // Always re-render since the content (if not the visibility) has changed
     notifyOverlayUpdated(OverlayDebug);
@@ -153,11 +164,23 @@ void OverlayManager::showDebugNotification(const QString& text, Uint32 durationM
     updateDebugVisibility();
 }
 
-QByteArray OverlayManager::composeDebugText()
+QByteArray OverlayManager::composeDebugText(bool includeMenuText)
 {
     SDL_AtomicLock(&m_NotificationLock);
     QByteArray composed = m_NotificationText.toUtf8();
     SDL_AtomicUnlock(&m_NotificationLock);
+
+    // Plain text version of the menu for renderers that only draw text
+    if (includeMenuText && m_MenuOpen) {
+        QMutexLocker lock(&m_RenderMutex);
+        QString menuText = m_Menu.title;
+        for (int i = 0; i < m_Menu.items.count(); i++) {
+            menuText += QString("\n%1 %2 %3").arg(i == m_Menu.selected ? ">" : " ")
+                                             .arg(m_Menu.items[i].label, -10)
+                                             .arg(m_Menu.items[i].valueText);
+        }
+        composed = menuText.toUtf8() + (composed.isEmpty() ? "" : "\n\n" + composed);
+    }
 
     if (m_DebugStatsEnabled && m_Overlays[OverlayDebug].text[0] != 0) {
         if (!composed.isEmpty()) {
@@ -172,9 +195,92 @@ QByteArray OverlayManager::composeDebugText()
 QString OverlayManager::getOverlayDisplayText(OverlayType type)
 {
     if (type == OverlayDebug) {
-        return QString::fromUtf8(composeDebugText());
+        return QString::fromUtf8(composeDebugText(true));
     }
     return QString::fromUtf8(m_Overlays[type].text);
+}
+
+void OverlayManager::setDebugMenu(const OverlayMenu& menu)
+{
+    {
+        QMutexLocker lock(&m_RenderMutex);
+        m_Menu = menu;
+        m_MenuOpen = true;
+    }
+    updateDebugVisibility();
+}
+
+void OverlayManager::closeDebugMenu()
+{
+    {
+        QMutexLocker lock(&m_RenderMutex);
+        m_MenuOpen = false;
+        m_MenuLayout.valid = false;
+    }
+    updateDebugVisibility();
+}
+
+bool OverlayManager::isDebugMenuOpen()
+{
+    return m_MenuOpen;
+}
+
+QSize OverlayManager::getDebugOverlaySurfaceSize()
+{
+    QMutexLocker lock(&m_RenderMutex);
+    return m_DebugSurfaceSize;
+}
+
+OverlayMenuHit OverlayManager::hitTestDebugMenu(int x, int y)
+{
+    QMutexLocker lock(&m_RenderMutex);
+    OverlayMenuHit hit = { OverlayMenuHit::None, -1, 0.0f };
+
+    if (!m_MenuOpen || !m_MenuLayout.valid || !m_MenuLayout.panel.contains(x, y)) {
+        return hit;
+    }
+
+    hit.kind = OverlayMenuHit::Panel;
+    if (m_MenuLayout.close.contains(x, y)) {
+        hit.kind = OverlayMenuHit::Close;
+    }
+    else if (m_MenuLayout.reset.contains(x, y)) {
+        hit.kind = OverlayMenuHit::Reset;
+    }
+    else {
+        for (int i = 0; i < m_MenuLayout.rows.count(); i++) {
+            if (m_MenuLayout.tracks[i].contains(x, y)) {
+                hit.kind = OverlayMenuHit::Track;
+                hit.index = i;
+                break;
+            }
+            else if (m_MenuLayout.rows[i].contains(x, y)) {
+                hit.kind = OverlayMenuHit::Item;
+                hit.index = i;
+                break;
+            }
+        }
+    }
+
+    if (hit.kind == OverlayMenuHit::Track) {
+        lock.unlock();
+        hit.fraction = getDebugMenuTrackFraction(hit.index, x);
+    }
+    return hit;
+}
+
+float OverlayManager::getDebugMenuTrackFraction(int index, int x)
+{
+    QMutexLocker lock(&m_RenderMutex);
+    if (!m_MenuLayout.valid || index < 0 || index >= m_MenuLayout.tracks.count()) {
+        return 0.0f;
+    }
+
+    // The hit area extends half a knob past each end of the drawn track
+    const QRect& area = m_MenuLayout.tracks[index];
+    int trackStart = area.x() + k_MenuKnobWidth / 2;
+    int trackWidth = area.width() - k_MenuKnobWidth;
+    return SDL_min(1.0f, SDL_max(0.0f, (float)(x - trackStart) / (trackWidth - 1)));
 }
 
 void OverlayManager::addFrameGraphSample(FrameGraphSeries series, float intervalMs)
@@ -358,13 +464,16 @@ void OverlayManager::notifyOverlayUpdated(OverlayType type)
                              getDebugOverlayMode() != DebugOverlayModeMini &&
                              takeFrameGraphSnapshot(graph);
 
-            // Stats and notifications are drawn on a translucent panel for legibility
-            QByteArray text = composeDebugText();
+            // Stats, notifications, and the menu are drawn on a translucent panel for legibility
+            QByteArray text = composeDebugText(false);
+            m_MenuLayout.valid = false;
             newSurface = RenderTextPanel(m_Overlays[type].font,
                                          text.constData(),
                                          m_Overlays[type].color,
                                          {0x10, 0x10, 0x14, 0xB8},
-                                         showGraph ? &graph : nullptr);
+                                         showGraph ? &graph : nullptr,
+                                         m_MenuOpen ? &m_Menu : nullptr);
+            m_DebugSurfaceSize = newSurface ? QSize(newSurface->w, newSurface->h) : QSize();
         }
         else {
             // The _Wrapped variant is required for line breaks to work
@@ -434,14 +543,15 @@ SDL_Surface* OverlayManager::RenderTextOutlinedWrapped(TTF_Font* font, const cha
 
 
 SDL_Surface* OverlayManager::RenderTextPanel(TTF_Font* font, const char* text, SDL_Color textColor, SDL_Color panelColor,
-                                             const FrameGraphSnapshot* graph)
+                                             const FrameGraphSnapshot* graph, const OverlayMenu* menu)
 {
     // Spacing (in pixels) between the screen edge and the panel,
-    // the panel edge and the text, and the panel corner radius.
+    // the panel edge and the content, and the panel corner radius.
     const int margin = 8;
     const int padX = 10;
     const int padY = 6;
     const int radius = 6;
+    const int sectionGap = 8;
 
     // Trailing line breaks would just add empty space at the bottom of the panel
     QByteArray trimmedText(text);
@@ -452,46 +562,75 @@ SDL_Surface* OverlayManager::RenderTextPanel(TTF_Font* font, const char* text, S
     const int outlineWidth = 1;
     const int maxWrapWidth = 1024;
 
-    // Some SDL_ttf versions size wrapped text surfaces to the wrap width rather
-    // than the longest line, so measure the longest line to keep the panel tight.
+    // The panel stacks up to three sections: menu, text, and graph
+    SDL_Surface* textSurface = nullptr;
     int contentWidth = 0;
-    int slackWidth = 0;
-    int oldOutline = TTF_GetFontOutline(font);
-    TTF_SetFontOutline(font, outlineWidth);
-    for (const QByteArray& line : trimmedText.split('\n')) {
-        int lineWidth;
-        if (TTF_SizeUTF8(font, line.constData(), &lineWidth, nullptr) == 0) {
-            contentWidth = SDL_max(contentWidth, lineWidth);
+    if (!trimmedText.isEmpty()) {
+        // Some SDL_ttf versions size wrapped text surfaces to the wrap width rather
+        // than the longest line, so measure the longest line to keep the panel tight.
+        int slackWidth = 0;
+        int oldOutline = TTF_GetFontOutline(font);
+        TTF_SetFontOutline(font, outlineWidth);
+        for (const QByteArray& line : trimmedText.split('\n')) {
+            int lineWidth;
+            if (TTF_SizeUTF8(font, line.constData(), &lineWidth, nullptr) == 0) {
+                contentWidth = SDL_max(contentWidth, lineWidth);
+            }
+        }
+        // SDL_ttf's wrapping can break a line that exactly fits the wrap width,
+        // so leave a couple of characters of slack to ensure it only breaks on '\n'.
+        TTF_SizeUTF8(font, "MM", &slackWidth, nullptr);
+        TTF_SetFontOutline(font, oldOutline);
+
+        int wrapWidth = (contentWidth > 0) ? SDL_min(contentWidth + slackWidth, maxWrapWidth) : maxWrapWidth;
+
+        // A thin outline keeps glyph edges crisp against the panel
+        textSurface = RenderTextOutlinedWrapped(font, trimmedText.constData(), textColor, {0, 0, 0, 0xFF}, outlineWidth, wrapWidth);
+
+        // Text is left-aligned, so anything past the longest line is empty
+        if (textSurface != nullptr) {
+            if (contentWidth <= 0 || contentWidth + 2 * outlineWidth > textSurface->w) {
+                contentWidth = textSurface->w;
+            }
+            else {
+                contentWidth += 2 * outlineWidth;
+            }
+        }
+        else {
+            contentWidth = 0;
         }
     }
-    // SDL_ttf's wrapping can break a line that exactly fits the wrap width,
-    // so leave a couple of characters of slack to ensure it only breaks on '\n'.
-    TTF_SizeUTF8(font, "MM", &slackWidth, nullptr);
-    TTF_SetFontOutline(font, oldOutline);
 
-    int wrapWidth = (contentWidth > 0) ? SDL_min(contentWidth + slackWidth, maxWrapWidth) : maxWrapWidth;
+    QSize menuSize = menu ? MeasureMenu(font, *menu) : QSize();
+    const int graphWidth = k_FrameGraphSamples * 2;
+    const int graphHeight = graph ? (TTF_FontHeight(font) + 4 + k_FrameGraphHeight) : 0;
+    const int textHeight = textSurface ? textSurface->h : 0;
 
-    // A thin outline keeps glyph edges crisp against the panel
-    SDL_Surface* textSurface = RenderTextOutlinedWrapped(font, trimmedText.constData(), textColor, {0, 0, 0, 0xFF}, outlineWidth, wrapWidth);
-    if (textSurface == nullptr) {
+    if (!menu && textSurface == nullptr) {
+        // Nothing to show
         return nullptr;
     }
 
-    // Text is left-aligned, so anything past the longest line is empty
-    if (contentWidth <= 0 || contentWidth + 2 * outlineWidth > textSurface->w) {
-        contentWidth = textSurface->w;
+    int innerWidth = SDL_max(SDL_max(contentWidth, menu ? menuSize.width() : 0), graph ? graphWidth : 0);
+    int innerHeight = 0;
+    int menuY = 0, textY = 0, graphY = 0;
+    if (menu) {
+        menuY = innerHeight;
+        innerHeight += menuSize.height();
     }
-    else {
-        contentWidth += 2 * outlineWidth;
+    if (textSurface) {
+        innerHeight += innerHeight > 0 ? sectionGap : 0;
+        textY = innerHeight;
+        innerHeight += textHeight;
+    }
+    if (graph && textSurface) {
+        innerHeight += sectionGap;
+        graphY = innerHeight;
+        innerHeight += graphHeight;
     }
 
-    // Optional frame time graph below the text: a legend line plus the plot
-    const int graphGap = 8;
-    const int graphWidth = k_FrameGraphSamples * 2;
-    const int graphBlockHeight = graph ? (graphGap + TTF_FontHeight(font) + 4 + k_FrameGraphHeight) : 0;
-
-    int panelW = SDL_max(contentWidth, graph ? graphWidth : 0) + 2 * padX;
-    int panelH = textSurface->h + graphBlockHeight + 2 * padY;
+    int panelW = innerWidth + 2 * padX;
+    int panelH = innerHeight + 2 * padY;
 
     // The surface includes a transparent margin, so renderers can keep
     // placing it flush against the screen edge.
@@ -533,18 +672,154 @@ SDL_Surface* OverlayManager::RenderTextPanel(TTF_Font* font, const char* text, S
         SDL_UnlockSurface(surface);
     }
 
-    SDL_SetSurfaceBlendMode(textSurface, SDL_BLENDMODE_BLEND);
-    SDL_Rect src = { 0, 0, contentWidth, textSurface->h };
-    SDL_Rect dst = { margin + padX, margin + padY, contentWidth, textSurface->h };
-    SDL_BlitSurface(textSurface, &src, surface, &dst);
+    int originX = margin + padX;
+    int originY = margin + padY;
 
-    if (graph) {
-        DrawFrameGraph(surface, font, margin + padX, margin + padY + textSurface->h + graphGap, graphWidth, *graph);
+    if (menu) {
+        MenuLayout layout = {};
+        DrawMenu(surface, font, originX, originY + menuY, innerWidth, *menu, layout);
+        layout.panel = QRect(margin, margin, panelW, panelH);
+        layout.valid = true;
+        m_MenuLayout = layout;
     }
 
-    SDL_FreeSurface(textSurface);
+    if (textSurface) {
+        SDL_SetSurfaceBlendMode(textSurface, SDL_BLENDMODE_BLEND);
+        SDL_Rect src = { 0, 0, contentWidth, textSurface->h };
+        SDL_Rect dst = { originX, originY + textY, contentWidth, textSurface->h };
+        SDL_BlitSurface(textSurface, &src, surface, &dst);
+        SDL_FreeSurface(textSurface);
+
+        if (graph) {
+            DrawFrameGraph(surface, font, originX, originY + graphY, graphWidth, *graph);
+        }
+    }
 
     return surface;
+}
+
+QSize OverlayManager::MeasureMenu(TTF_Font* font, const OverlayMenu& menu)
+{
+    int lineH = TTF_FontHeight(font);
+    int labelW = 0, valueW = 0, w;
+
+    for (const OverlayMenuItem& item : menu.items) {
+        if (TTF_SizeUTF8(font, item.label.toUtf8().constData(), &w, nullptr) == 0) {
+            labelW = SDL_max(labelW, w);
+        }
+        if (TTF_SizeUTF8(font, item.valueText.toUtf8().constData(), &w, nullptr) == 0) {
+            valueW = SDL_max(valueW, w);
+        }
+    }
+    // Keep the layout stable while values change (e.g. "5%" -> "100%")
+    if (TTF_SizeUTF8(font, "+100%", &w, nullptr) == 0) {
+        valueW = SDL_max(valueW, w);
+    }
+
+    int rowsWidth = labelW + k_MenuColumnGap + k_MenuTrackWidth + k_MenuColumnGap + valueW;
+
+    int titleW = 0, buttonsW = 0, hintW = 0;
+    TTF_SizeUTF8(font, menu.title.toUtf8().constData(), &titleW, nullptr);
+    int resetW = 0, closeW = 0;
+    TTF_SizeUTF8(font, "Reset", &resetW, nullptr);
+    TTF_SizeUTF8(font, "X", &closeW, nullptr);
+    buttonsW = resetW + closeW + 4 * k_MenuButtonPadX + k_MenuColumnGap;
+    if (!menu.hint.isEmpty()) {
+        TTF_SizeUTF8(font, menu.hint.toUtf8().constData(), &hintW, nullptr);
+    }
+
+    int width = SDL_max(SDL_max(rowsWidth, titleW + k_MenuColumnGap + buttonsW), hintW);
+    int height = (lineH + k_MenuRowPadding) +                          // Title row
+                 menu.items.count() * (lineH + k_MenuRowPadding) +     // Item rows
+                 (menu.hint.isEmpty() ? 0 : lineH + 4);                // Hint
+    return QSize(width, height);
+}
+
+void OverlayManager::DrawMenu(SDL_Surface* surface, TTF_Font* font, int x, int y, int width, const OverlayMenu& menu, MenuLayout& layout)
+{
+    const SDL_Color white = {0xF0, 0xF0, 0xF0, 0xFF};
+    const SDL_Color gray = {0x9A, 0x9A, 0x9A, 0xFF};
+    const SDL_Color accent = {0x4F, 0xC3, 0xF7, 0xFF};
+    const int lineH = TTF_FontHeight(font);
+    const int rowH = lineH + k_MenuRowPadding;
+
+    auto fillRect = [&](const QRect& r, SDL_Color c) {
+        SDL_Rect sr = { r.x(), r.y(), r.width(), r.height() };
+        SDL_FillRect(surface, &sr, SDL_MapRGBA(surface->format, c.r, c.g, c.b, c.a));
+    };
+    auto drawText = [&](const QString& str, int tx, int ty, SDL_Color c) -> int {
+        if (str.isEmpty()) {
+            return 0;
+        }
+        SDL_Surface* t = TTF_RenderUTF8_Blended(font, str.toUtf8().constData(), c);
+        if (t == nullptr) {
+            return 0;
+        }
+        SDL_SetSurfaceBlendMode(t, SDL_BLENDMODE_BLEND);
+        SDL_Rect dst = { tx, ty, t->w, t->h };
+        SDL_BlitSurface(t, nullptr, surface, &dst);
+        int w = t->w;
+        SDL_FreeSurface(t);
+        return w;
+    };
+    auto drawButton = [&](const QString& label, int right, int ty) -> QRect {
+        int tw = 0;
+        TTF_SizeUTF8(font, label.toUtf8().constData(), &tw, nullptr);
+        QRect r(right - tw - 2 * k_MenuButtonPadX, ty, tw + 2 * k_MenuButtonPadX, lineH + 4);
+        fillRect(r, {0x50, 0x50, 0x5A, 0xF0});
+        drawText(label, r.x() + k_MenuButtonPadX, r.y() + 2, white);
+        return r;
+    };
+
+    // Measure columns the same way as MeasureMenu()
+    int labelW = 0, w;
+    for (const OverlayMenuItem& item : menu.items) {
+        if (TTF_SizeUTF8(font, item.label.toUtf8().constData(), &w, nullptr) == 0) {
+            labelW = SDL_max(labelW, w);
+        }
+    }
+
+    // Title row with Reset and Close buttons on the right
+    drawText(menu.title, x, y + 2, accent);
+    layout.close = drawButton("X", x + width, y);
+    layout.reset = drawButton("Reset", layout.close.x() - k_MenuColumnGap / 2, y);
+    int rowY = y + rowH;
+
+    layout.rows.clear();
+    layout.tracks.clear();
+    for (int i = 0; i < menu.items.count(); i++) {
+        const OverlayMenuItem& item = menu.items[i];
+        QRect row(x - 4, rowY, width + 8, rowH);
+        QRect track(x + labelW + k_MenuColumnGap, rowY + (rowH - k_MenuTrackHeight) / 2, k_MenuTrackWidth, k_MenuTrackHeight);
+
+        if (i == menu.selected) {
+            fillRect(row, {0x36, 0x40, 0x52, 0xF0});
+        }
+
+        SDL_Color textColor = item.enabled ? white : gray;
+        drawText(item.label, x, rowY + k_MenuRowPadding / 2, textColor);
+
+        // Slider track, filled portion, and knob
+        fillRect(track, {0x5A, 0x5A, 0x64, 0xFF});
+        if (item.enabled && item.maximum > item.minimum) {
+            float fraction = (float)(item.value - item.minimum) / (item.maximum - item.minimum);
+            fraction = SDL_min(1.0f, SDL_max(0.0f, fraction));
+            int knobX = track.x() + (int)(fraction * (track.width() - 1));
+            fillRect(QRect(track.x(), track.y(), knobX - track.x(), track.height()), accent);
+            fillRect(QRect(knobX - k_MenuKnobWidth / 2, rowY + 4, k_MenuKnobWidth, rowH - 8), white);
+        }
+
+        drawText(item.valueText, track.right() + 1 + k_MenuColumnGap, rowY + k_MenuRowPadding / 2, textColor);
+
+        layout.rows.append(row);
+        // The clickable track area is taller than the drawn track for easier grabbing
+        layout.tracks.append(QRect(track.x() - k_MenuKnobWidth / 2, rowY, track.width() + k_MenuKnobWidth, rowH));
+        rowY += rowH;
+    }
+
+    if (!menu.hint.isEmpty()) {
+        drawText(menu.hint, x, rowY + 2, gray);
+    }
 }
 
 void OverlayManager::DrawFrameGraph(SDL_Surface* surface, TTF_Font* font, int x, int y, int width, const FrameGraphSnapshot& graph)

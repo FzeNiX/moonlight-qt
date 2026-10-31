@@ -76,26 +76,10 @@ void SdlInputHandler::performSpecialKeyCombo(KeyCombo combo)
         Session::get()->getOverlayManager().setOverlayState(Overlay::OverlayDebug, true);
         break;
 
-    case KeyComboVideoAdjustIncrease:
-        Session::get()->changeVideoAdjustment(1);
-        break;
-
-    case KeyComboVideoAdjustDecrease:
-        Session::get()->changeVideoAdjustment(-1);
-        break;
-
-    case KeyComboVideoAdjustPrevious:
-        Session::get()->selectVideoAdjustment(-1);
-        break;
-
-    case KeyComboVideoAdjustNext:
-        Session::get()->selectVideoAdjustment(1);
-        break;
-
-    case KeyComboVideoAdjustReset:
+    case KeyComboVideoAdjustMenu:
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                    "Detected video adjustment reset combo");
-        Session::get()->resetVideoAdjustments();
+                    "Detected video adjustment menu combo");
+        Session::get()->toggleVideoAdjustmentMenu();
         break;
 
     case KeyComboCycleStatsOverlayPosition:

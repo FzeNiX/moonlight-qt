@@ -622,6 +622,9 @@ Session::Session(NvComputer* computer, NvApp& app, StreamingPreferences *prefere
     m_LiveVideoAdjustments[VA_CONTRAST] = m_Preferences->colorContrast;
     m_LiveVideoAdjustments[VA_SATURATION] = m_Preferences->colorSaturation;
     m_SelectedVideoAdjustment = VA_SHARPNESS;
+    m_VideoAdjustMenuOpen = false;
+    m_VideoAdjustMenuRestoreCapture = false;
+    m_VideoAdjustMenuDragIndex = -1;
 }
 
 struct VideoAdjustmentInfo {
@@ -638,20 +641,66 @@ static const VideoAdjustmentInfo k_VideoAdjustments[] = {
     { "Saturation", 0, 200, 5, VIDEO_ADJUST_COLOR },
 };
 
+void Session::toggleVideoAdjustmentMenu()
+{
+    if (m_VideoAdjustMenuOpen) {
+        closeVideoAdjustmentMenu();
+        return;
+    }
+
+    // Release the mouse so it can be used on the menu, and remember to
+    // recapture it afterwards. Input goes to the menu while it's open.
+    m_VideoAdjustMenuRestoreCapture = m_InputHandler->isCaptureActive();
+    m_InputHandler->raiseAllKeys();
+    m_InputHandler->setCaptureActive(false);
+
+    m_VideoAdjustMenuOpen = true;
+    m_VideoAdjustMenuDragIndex = -1;
+    updateVideoAdjustmentMenu();
+}
+
+void Session::closeVideoAdjustmentMenu()
+{
+    if (!m_VideoAdjustMenuOpen) {
+        return;
+    }
+
+    m_VideoAdjustMenuOpen = false;
+    m_VideoAdjustMenuDragIndex = -1;
+    m_OverlayManager.closeDebugMenu();
+
+    if (m_VideoAdjustMenuRestoreCapture) {
+        m_InputHandler->setCaptureActive(true);
+    }
+}
+
 void Session::selectVideoAdjustment(int direction)
 {
     m_SelectedVideoAdjustment = (VideoAdjustment)((m_SelectedVideoAdjustment + direction + VA_MAX) % VA_MAX);
-    showVideoAdjustmentStatus();
+    updateVideoAdjustmentMenu();
 }
 
 void Session::changeVideoAdjustment(int steps)
 {
     const VideoAdjustmentInfo& info = k_VideoAdjustments[m_SelectedVideoAdjustment];
-    int& value = m_LiveVideoAdjustments[m_SelectedVideoAdjustment];
-    value = qBound(info.min, value + steps * info.step, info.max);
+    setVideoAdjustment(m_SelectedVideoAdjustment, m_LiveVideoAdjustments[m_SelectedVideoAdjustment] + steps * info.step);
+}
 
+void Session::setVideoAdjustment(int index, int value)
+{
+    const VideoAdjustmentInfo& info = k_VideoAdjustments[index];
+
+    // Snap to the step size so dragging lands on the same values as the keys
+    value = info.min + qRound((value - info.min) / (double)info.step) * info.step;
+    value = qBound(info.min, value, info.max);
+
+    if (value == m_LiveVideoAdjustments[index]) {
+        return;
+    }
+
+    m_LiveVideoAdjustments[index] = value;
     applyVideoAdjustments();
-    showVideoAdjustmentStatus();
+    updateVideoAdjustmentMenu();
 }
 
 void Session::resetVideoAdjustments()
@@ -662,7 +711,7 @@ void Session::resetVideoAdjustments()
     m_LiveVideoAdjustments[VA_SATURATION] = m_Preferences->colorSaturation;
 
     applyVideoAdjustments();
-    showVideoAdjustmentStatus();
+    updateVideoAdjustmentMenu();
 }
 
 void Session::applyVideoAdjustments()
@@ -679,8 +728,12 @@ void Session::applyVideoAdjustments()
     SDL_UnlockMutex(m_DecoderLock);
 }
 
-void Session::showVideoAdjustmentStatus()
+void Session::updateVideoAdjustmentMenu()
 {
+    if (!m_VideoAdjustMenuOpen) {
+        return;
+    }
+
     int support = 0;
     SDL_LockMutex(m_DecoderLock);
     if (m_VideoDecoder != nullptr) {
@@ -688,33 +741,188 @@ void Session::showVideoAdjustmentStatus()
     }
     SDL_UnlockMutex(m_DecoderLock);
 
-    // e.g. "> Saturation 115%" with the selected item marked
-    QString text = "Video adjustments (Ctrl+Alt+Shift+Arrows, R: reset)";
+    Overlay::OverlayMenu menu;
+    menu.title = "Video adjustments";
+    menu.hint = "Drag or scroll to adjust. Esc closes.";
+    menu.selected = m_SelectedVideoAdjustment;
+
     for (int i = 0; i < VA_MAX; i++) {
         const VideoAdjustmentInfo& info = k_VideoAdjustments[i];
-        int value = m_LiveVideoAdjustments[i];
-        QString valueText;
+        Overlay::OverlayMenuItem item;
+        item.label = info.name;
+        item.value = m_LiveVideoAdjustments[i];
+        item.minimum = info.min;
+        item.maximum = info.max;
+        item.enabled = (support & info.support) != 0;
 
-        if (!(support & info.support)) {
-            valueText = "n/a with this renderer";
+        if (!item.enabled) {
+            item.valueText = "n/a";
         }
-        else if (i == VA_SHARPNESS && value == 0) {
-            valueText = "Off";
+        else if (i == VA_SHARPNESS && item.value == 0) {
+            item.valueText = "Off";
         }
         else if (i == VA_BRIGHTNESS) {
-            valueText = QString("%1%2%").arg(value > 0 ? "+" : "").arg(value);
+            item.valueText = QString("%1%2%").arg(item.value > 0 ? "+" : "").arg(item.value);
         }
         else {
-            valueText = QString("%1%").arg(value);
+            item.valueText = QString("%1%").arg(item.value);
         }
 
-        text += QString("\n%1 %2 %3")
-                    .arg(i == m_SelectedVideoAdjustment ? ">" : " ")
-                    .arg(info.name, -10)
-                    .arg(valueText);
+        menu.items.append(item);
     }
 
-    m_OverlayManager.showDebugNotification(text, 3000);
+    m_OverlayManager.setDebugMenu(menu);
+}
+
+bool Session::windowToOverlayPoint(int windowX, int windowY, int* overlayX, int* overlayY)
+{
+    QSize surfaceSize = m_OverlayManager.getDebugOverlaySurfaceSize();
+    if (surfaceSize.isEmpty()) {
+        return false;
+    }
+
+    // Mouse events are in window coordinates, while overlays are positioned in
+    // drawable pixels, which differ on HiDPI displays (e.g. macOS Retina).
+    int windowW, windowH, pixelW, pixelH;
+    SDL_GetWindowSize(m_Window, &windowW, &windowH);
+#if SDL_VERSION_ATLEAST(2, 26, 0)
+    SDL_GetWindowSizeInPixels(m_Window, &pixelW, &pixelH);
+#else
+    pixelW = windowW;
+    pixelH = windowH;
+#endif
+    if (windowW <= 0 || windowH <= 0) {
+        return false;
+    }
+
+    int pixelX = windowX * pixelW / windowW;
+    int pixelY = windowY * pixelH / windowH;
+
+    // Renderers place the debug overlay at the top-left or top-right corner
+    int originX = m_OverlayManager.isOverlayRightAligned(Overlay::OverlayDebug) ? pixelW - surfaceSize.width() : 0;
+    *overlayX = pixelX - originX;
+    *overlayY = pixelY;
+    return true;
+}
+
+static bool isHotkeyModifierHeld(const SDL_KeyboardEvent& key)
+{
+    return (key.keysym.mod & KMOD_CTRL) && (key.keysym.mod & KMOD_ALT) && (key.keysym.mod & KMOD_SHIFT);
+}
+
+bool Session::handleVideoAdjustmentMenuEvent(const SDL_Event* event)
+{
+    int ox, oy;
+
+    switch (event->type) {
+    case SDL_KEYDOWN:
+        // Let our hotkeys (Ctrl+Alt+Shift+...) through, including the one that closes the menu
+        if (isHotkeyModifierHeld(event->key)) {
+            return false;
+        }
+
+        switch (event->key.keysym.sym) {
+        case SDLK_ESCAPE:
+            closeVideoAdjustmentMenu();
+            break;
+        case SDLK_UP:
+            selectVideoAdjustment(-1);
+            break;
+        case SDLK_DOWN:
+            selectVideoAdjustment(1);
+            break;
+        case SDLK_LEFT:
+            changeVideoAdjustment(-1);
+            break;
+        case SDLK_RIGHT:
+            changeVideoAdjustment(1);
+            break;
+        case SDLK_r:
+            resetVideoAdjustments();
+            break;
+        default:
+            break;
+        }
+
+        // Don't send keys to the host while the menu is open
+        return true;
+
+    case SDL_KEYUP:
+        return !isHotkeyModifierHeld(event->key);
+
+    case SDL_MOUSEBUTTONDOWN:
+        if (event->button.which == SDL_TOUCH_MOUSEID || event->button.button != SDL_BUTTON_LEFT) {
+            return true;
+        }
+        if (windowToOverlayPoint(event->button.x, event->button.y, &ox, &oy)) {
+            Overlay::OverlayMenuHit hit = m_OverlayManager.hitTestDebugMenu(ox, oy);
+            switch (hit.kind) {
+            case Overlay::OverlayMenuHit::Track: {
+                const VideoAdjustmentInfo& info = k_VideoAdjustments[hit.index];
+                m_SelectedVideoAdjustment = (VideoAdjustment)hit.index;
+                m_VideoAdjustMenuDragIndex = hit.index;
+                setVideoAdjustment(hit.index, info.min + qRound(hit.fraction * (info.max - info.min)));
+                updateVideoAdjustmentMenu();
+                break;
+            }
+            case Overlay::OverlayMenuHit::Item:
+                m_SelectedVideoAdjustment = (VideoAdjustment)hit.index;
+                updateVideoAdjustmentMenu();
+                break;
+            case Overlay::OverlayMenuHit::Reset:
+                resetVideoAdjustments();
+                break;
+            case Overlay::OverlayMenuHit::Close:
+            case Overlay::OverlayMenuHit::None:
+                // Clicking outside the panel also closes the menu
+                closeVideoAdjustmentMenu();
+                break;
+            case Overlay::OverlayMenuHit::Panel:
+                break;
+            }
+        }
+        return true;
+
+    case SDL_MOUSEBUTTONUP:
+        if (event->button.button == SDL_BUTTON_LEFT) {
+            m_VideoAdjustMenuDragIndex = -1;
+        }
+        return true;
+
+    case SDL_MOUSEMOTION:
+        if (m_VideoAdjustMenuDragIndex >= 0 && windowToOverlayPoint(event->motion.x, event->motion.y, &ox, &oy)) {
+            const VideoAdjustmentInfo& info = k_VideoAdjustments[m_VideoAdjustMenuDragIndex];
+            float fraction = m_OverlayManager.getDebugMenuTrackFraction(m_VideoAdjustMenuDragIndex, ox);
+            setVideoAdjustment(m_VideoAdjustMenuDragIndex, info.min + qRound(fraction * (info.max - info.min)));
+        }
+        return true;
+
+    case SDL_MOUSEWHEEL: {
+        // Scroll adjusts the item under the cursor (or the selected one)
+        int mouseX, mouseY;
+        SDL_GetMouseState(&mouseX, &mouseY);
+        if (windowToOverlayPoint(mouseX, mouseY, &ox, &oy)) {
+            Overlay::OverlayMenuHit hit = m_OverlayManager.hitTestDebugMenu(ox, oy);
+            if (hit.kind == Overlay::OverlayMenuHit::Track || hit.kind == Overlay::OverlayMenuHit::Item) {
+                m_SelectedVideoAdjustment = (VideoAdjustment)hit.index;
+            }
+        }
+
+        int steps = event->wheel.y;
+        if (event->wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
+            steps = -steps;
+        }
+        if (steps != 0) {
+            changeVideoAdjustment(steps);
+        }
+        updateVideoAdjustmentMenu();
+        return true;
+    }
+
+    default:
+        // Everything else (window events, gamepads, quit, etc.) is handled normally
+        return false;
+    }
 }
 
 Session::~Session()
@@ -2157,6 +2365,11 @@ void Session::exec()
             continue;
         }
 #endif
+        // While the video adjustment menu is open, it gets the mouse and keyboard
+        if (m_VideoAdjustMenuOpen && handleVideoAdjustmentMenuEvent(&event)) {
+            continue;
+        }
+
         switch (event.type) {
         case SDL_QUIT:
             SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,

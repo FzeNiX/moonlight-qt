@@ -145,30 +145,10 @@ SdlInputHandler::SdlInputHandler(StreamingPreferences& prefs, int streamWidth, i
     m_SpecialKeyCombos[KeyComboCycleStatsOverlayPosition].scanCode = SDL_SCANCODE_P;
     m_SpecialKeyCombos[KeyComboCycleStatsOverlayPosition].enabled = true;
 
-    m_SpecialKeyCombos[KeyComboVideoAdjustIncrease].keyCombo = KeyComboVideoAdjustIncrease;
-    m_SpecialKeyCombos[KeyComboVideoAdjustIncrease].keyCode = SDLK_UP;
-    m_SpecialKeyCombos[KeyComboVideoAdjustIncrease].scanCode = SDL_SCANCODE_UP;
-    m_SpecialKeyCombos[KeyComboVideoAdjustIncrease].enabled = true;
-
-    m_SpecialKeyCombos[KeyComboVideoAdjustDecrease].keyCombo = KeyComboVideoAdjustDecrease;
-    m_SpecialKeyCombos[KeyComboVideoAdjustDecrease].keyCode = SDLK_DOWN;
-    m_SpecialKeyCombos[KeyComboVideoAdjustDecrease].scanCode = SDL_SCANCODE_DOWN;
-    m_SpecialKeyCombos[KeyComboVideoAdjustDecrease].enabled = true;
-
-    m_SpecialKeyCombos[KeyComboVideoAdjustPrevious].keyCombo = KeyComboVideoAdjustPrevious;
-    m_SpecialKeyCombos[KeyComboVideoAdjustPrevious].keyCode = SDLK_LEFT;
-    m_SpecialKeyCombos[KeyComboVideoAdjustPrevious].scanCode = SDL_SCANCODE_LEFT;
-    m_SpecialKeyCombos[KeyComboVideoAdjustPrevious].enabled = true;
-
-    m_SpecialKeyCombos[KeyComboVideoAdjustNext].keyCombo = KeyComboVideoAdjustNext;
-    m_SpecialKeyCombos[KeyComboVideoAdjustNext].keyCode = SDLK_RIGHT;
-    m_SpecialKeyCombos[KeyComboVideoAdjustNext].scanCode = SDL_SCANCODE_RIGHT;
-    m_SpecialKeyCombos[KeyComboVideoAdjustNext].enabled = true;
-
-    m_SpecialKeyCombos[KeyComboVideoAdjustReset].keyCombo = KeyComboVideoAdjustReset;
-    m_SpecialKeyCombos[KeyComboVideoAdjustReset].keyCode = SDLK_r;
-    m_SpecialKeyCombos[KeyComboVideoAdjustReset].scanCode = SDL_SCANCODE_R;
-    m_SpecialKeyCombos[KeyComboVideoAdjustReset].enabled = true;
+    m_SpecialKeyCombos[KeyComboVideoAdjustMenu].keyCombo = KeyComboVideoAdjustMenu;
+    m_SpecialKeyCombos[KeyComboVideoAdjustMenu].keyCode = SDLK_a;
+    m_SpecialKeyCombos[KeyComboVideoAdjustMenu].scanCode = SDL_SCANCODE_A;
+    m_SpecialKeyCombos[KeyComboVideoAdjustMenu].enabled = true;
 
     m_OldIgnoreDevices = SDL_GetHint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES);
     m_OldIgnoreDevicesExcept = SDL_GetHint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT);

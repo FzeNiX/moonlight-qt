@@ -170,11 +170,7 @@ private:
         KeyComboToggleKeyboardGrab,
         KeyComboCycleStatsOverlayMode,
         KeyComboCycleStatsOverlayPosition,
-        KeyComboVideoAdjustIncrease,
-        KeyComboVideoAdjustDecrease,
-        KeyComboVideoAdjustPrevious,
-        KeyComboVideoAdjustNext,
-        KeyComboVideoAdjustReset,
+        KeyComboVideoAdjustMenu,
         KeyComboMax
     };
 

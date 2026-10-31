@@ -888,7 +888,7 @@ Flickable {
                     ToolTip.visible: hovered
                     ToolTip.text: qsTr("Restores detail that is softened by video compression, with negligible added latency.") + "\n\n" +
                                   qsTr("Supported by the Direct3D 11 renderer on Windows and the Vulkan renderer on Linux and macOS. On Linux, enabling this prefers the Vulkan renderer.") + "\n\n" +
-                                  qsTr("While streaming, use Ctrl+Alt+Shift+Left/Right to pick sharpness or a color setting and Ctrl+Alt+Shift+Up/Down to adjust it (Ctrl+Alt+Shift+R resets).")
+                                  qsTr("While streaming, press Ctrl+Alt+Shift+A to open a menu where you can adjust sharpness and colors live with the mouse.")
                 }
 
                 Row {
@@ -938,7 +938,7 @@ Flickable {
                         ToolTip.visible: colorAdjustHover.containsMouse
                         ToolTip.text: qsTr("Adjusts the stream's colors on this PC, for example if they look more washed out than on the host.") + "\n\n" +
                                       qsTr("Supported by the Direct3D 11 renderer on Windows, and the Vulkan and EGL renderers on Linux and macOS.") + "\n\n" +
-                                      qsTr("While streaming, use Ctrl+Alt+Shift+Left/Right to pick a setting and Ctrl+Alt+Shift+Up/Down to adjust it live (Ctrl+Alt+Shift+R resets). Live changes are not saved.") + "\n\n" +
+                                      qsTr("While streaming, press Ctrl+Alt+Shift+A to open a menu where you can adjust these live with the mouse. Live changes are not saved.") + "\n\n" +
                                       qsTr("Tip: washed out blacks are often caused by HDR being enabled on this PC's desktop while streaming SDR, or by a full/limited color range mismatch.")
 
                         MouseArea {

@@ -3,6 +3,8 @@
 #include <QString>
 #include <QReadWriteLock>
 #include <QMutex>
+#include <QRect>
+#include <QVector>
 
 #include "SDL_compat.h"
 #include <SDL_ttf.h>
@@ -35,6 +37,37 @@ enum DebugOverlayPosition {
     DebugOverlayPositionLeft,
     DebugOverlayPositionRight,
     DebugOverlayPositionMax
+};
+
+// An interactive menu of sliders drawn at the top of the debug overlay panel
+struct OverlayMenuItem {
+    QString label;
+    int value;
+    int minimum;
+    int maximum;
+    QString valueText;
+    bool enabled; // false if the setting can't be applied (shown as unavailable)
+};
+
+struct OverlayMenu {
+    QString title;
+    QString hint;
+    QVector<OverlayMenuItem> items;
+    int selected;
+};
+
+// Result of hit testing a point (in overlay surface pixels) against the menu
+struct OverlayMenuHit {
+    enum Kind {
+        None,       // Outside the overlay panel
+        Panel,      // Inside the panel, but not on a control
+        Item,       // On an item's row (label or value)
+        Track,      // On an item's slider track
+        Reset,
+        Close,
+    } kind;
+    int index;      // Item index for Item and Track
+    float fraction; // Position along the track [0, 1] for Track
 };
 
 class IOverlayRenderer
@@ -82,6 +115,18 @@ public:
     // for renderers that draw overlay text themselves.
     QString getOverlayDisplayText(OverlayType type);
 
+    // Interactive menu at the top of the debug overlay. The overlay stays visible
+    // while the menu is open. May be called from any thread.
+    void setDebugMenu(const OverlayMenu& menu);
+    void closeDebugMenu();
+    bool isDebugMenuOpen();
+
+    // Hit testing for the menu, in pixels relative to the debug overlay surface's
+    // top-left corner (as last rendered).
+    OverlayMenuHit hitTestDebugMenu(int x, int y);
+    float getDebugMenuTrackFraction(int index, int x);
+    QSize getDebugOverlaySurfaceSize();
+
     // Per-frame timing samples for the stats overlay graph. May be called from any thread.
     void addFrameGraphSample(FrameGraphSeries series, float intervalMs);
     void setFrameGraphTargetFps(int fps);
@@ -103,11 +148,22 @@ private:
         float targetMs;
     };
 
+    struct MenuLayout {
+        bool valid;
+        QRect panel;
+        QRect reset;
+        QRect close;
+        QVector<QRect> rows;
+        QVector<QRect> tracks;
+    };
+
     SDL_Surface* RenderTextPanel(TTF_Font* font, const char* text, SDL_Color textColor, SDL_Color panelColor,
-                                 const FrameGraphSnapshot* graph);
+                                 const FrameGraphSnapshot* graph, const OverlayMenu* menu);
+    QSize MeasureMenu(TTF_Font* font, const OverlayMenu& menu);
+    void DrawMenu(SDL_Surface* surface, TTF_Font* font, int x, int y, int width, const OverlayMenu& menu, MenuLayout& layout);
     void DrawFrameGraph(SDL_Surface* surface, TTF_Font* font, int x, int y, int width, const FrameGraphSnapshot& graph);
     bool takeFrameGraphSnapshot(FrameGraphSnapshot& snapshot);
-    QByteArray composeDebugText();
+    QByteArray composeDebugText(bool includeMenuText);
     void updateDebugVisibility();
     static Uint32 notificationTimerCallback(Uint32 interval, void* param);
 
@@ -132,6 +188,12 @@ private:
     int m_GraphNext[FrameGraphSeriesMax];
     int m_GraphCount[FrameGraphSeriesMax];
     int m_GraphTargetFps;
+
+    // Menu state (protected by m_RenderMutex)
+    bool m_MenuOpen;
+    OverlayMenu m_Menu;
+    MenuLayout m_MenuLayout;
+    QSize m_DebugSurfaceSize;
 
     // Serializes surface rendering, since TTF fonts aren't thread-safe and
     // overlays can be updated from the decoder, input, and timer threads.

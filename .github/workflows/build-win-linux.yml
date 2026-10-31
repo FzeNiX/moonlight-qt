@@ -1,0 +1,78 @@
+---
+# Lighter-weight build for quick testing: Windows x64 + Linux AppImage only.
+# Runs on pushes to non-master branches and can be started manually from the Actions tab.
+name: Build - Windows x64 and Linux
+permissions:
+  contents: read
+
+on:
+  push:
+    branches-ignore:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: build-win-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      ci_version: ${{ steps.set-ci-version.outputs.ci_version }}
+    steps:
+      - name: Set CI version
+        id: set-ci-version
+        shell: bash
+        run: |
+          CI_VERSION=`echo ${GITHUB_SHA} | cut -c1-6`
+          echo "ci_version=${CI_VERSION}" >> "${GITHUB_OUTPUT}"
+
+  build-linux:
+    needs: setup
+    uses: ./.github/workflows/build-appimage.yml
+    with:
+      ci_version: ${{ needs.setup.outputs.ci_version }}
+
+  build-windows:
+    needs: setup
+    runs-on: windows-2025
+    env:
+      CI_VERSION: ${{ needs.setup.outputs.ci_version }}
+      QT_VERSION: 6.12.0
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+        with:
+          submodules: 'recursive'
+          fetch-depth: 1
+
+      - name: Download dependencies
+        run: powershell ./setup-deps.ps1
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          cache: true
+          set-env: false
+          add-tools-to-path: false
+          tools: 'tools_qtcreator_gui'
+          version: ${{ env.QT_VERSION }}
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@073e34d7c2ab4ae6961ed7cca690b3abd5ba5a7e'
+
+      - name: Build x64 binaries
+        shell: cmd
+        run: |
+          set "PATH=%QT_PATH%;%PATH%"
+          scripts\build-arch.bat Release x64
+        env:
+          QT_PATH: ${{ runner.workspace }}\Qt\${{ env.QT_VERSION }}\msvc2022_64\bin
+
+      - name: Upload Installer and Portable ZIP
+        uses: actions/upload-artifact@v6
+        with:
+          name: Moonlight-Windows-x64-${{ env.CI_VERSION }}
+          path: build/installer-x64-release/*
+          compression-level: 0
+          if-no-files-found: error

@@ -1657,6 +1657,58 @@ Flickable {
                 anchors.fill: parent
                 spacing: 5
 
+                Row {
+                    spacing: 5
+                    width: parent.width
+
+                    Label {
+                        text: qsTr("Controller type sent to host:")
+                        font.pointSize: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    AutoResizingComboBox {
+                        id: controllerTypeComboBox
+                        textRole: "text"
+                        model: ListModel {
+                            id: controllerTypeListModel
+                            ListElement {
+                                text: qsTr("Automatic")
+                                val: StreamingPreferences.CTO_AUTO
+                            }
+                            ListElement {
+                                text: qsTr("Xbox")
+                                val: StreamingPreferences.CTO_XBOX
+                            }
+                            ListElement {
+                                text: qsTr("PlayStation (DualShock 4)")
+                                val: StreamingPreferences.CTO_PLAYSTATION
+                            }
+                        }
+
+                        Component.onCompleted: {
+                            currentIndex = 0
+                            for (var i = 0; i < controllerTypeListModel.count; i++) {
+                                if (StreamingPreferences.controllerTypeOverride === controllerTypeListModel.get(i).val) {
+                                    currentIndex = i
+                                    break
+                                }
+                            }
+                        }
+
+                        // ::onActivated must be used, as it only listens for when the index is changed by a human
+                        onActivated: {
+                            StreamingPreferences.controllerTypeOverride = controllerTypeListModel.get(currentIndex).val
+                        }
+
+                        ToolTip.delay: 1000
+                        ToolTip.timeout: 10000
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Chooses which kind of controller the host emulates, regardless of the controller connected to this PC. This works when the host's gamepad setting is \"auto\" (the default in Sunshine and Apollo).") + "\n\n" +
+                                      qsTr("Xbox disables motion and touchpad, since Xbox controllers don't have them. PlayStation emulates a DualShock 4 on Windows hosts.")
+                    }
+                }
+
                 CheckBox {
                     id: swapFaceButtonsCheck
                     width: parent.width

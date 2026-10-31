@@ -41,12 +41,20 @@ enum DebugOverlayPosition {
 
 // An interactive menu of sliders drawn at the top of the debug overlay panel
 struct OverlayMenuItem {
+    enum Kind {
+        Slider,     // label, track, and value text
+        Button,     // a clickable action filling the row
+        Header,     // a section title
+        Info,       // read-only label and value text
+    };
+
+    Kind kind = Slider;
     QString label;
-    int value;
-    int minimum;
-    int maximum;
+    int value = 0;
+    int minimum = 0;
+    int maximum = 0;
     QString valueText;
-    bool enabled; // false if the setting can't be applied (shown as unavailable)
+    bool enabled = true; // false if the setting can't be applied (shown as unavailable)
 };
 
 struct OverlayMenu {
@@ -61,7 +69,7 @@ struct OverlayMenuHit {
     enum Kind {
         None,       // Outside the overlay panel
         Panel,      // Inside the panel, but not on a control
-        Item,       // On an item's row (label or value)
+        Item,       // On an item's row (label or value, or a button)
         Track,      // On an item's slider track
         Reset,
         Close,

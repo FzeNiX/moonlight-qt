@@ -77,6 +77,7 @@ NavigableDialog {
             windowMode: StreamingPreferences.windowMode,
             enableHdr: StreamingPreferences.enableHdr,
             absoluteMouseMode: StreamingPreferences.absoluteMouseMode,
+            controllerTypeOverride: StreamingPreferences.controllerTypeOverride,
             videoSharpening: StreamingPreferences.videoSharpening,
             videoSharpness: StreamingPreferences.videoSharpness,
             colorBrightness: StreamingPreferences.colorBrightness,
@@ -112,6 +113,7 @@ NavigableDialog {
         selectByValue(windowModeComboBox, windowModeModel, Number(p.windowMode))
         hdrCheck.checked = p.enableHdr === true || p.enableHdr === "true"
         mouseCheck.checked = p.absoluteMouseMode === true || p.absoluteMouseMode === "true"
+        selectByValue(controllerTypeComboBox, controllerTypeModel, Number(p.controllerTypeOverride))
         sharpenCheck.checked = p.videoSharpening === true || p.videoSharpening === "true"
         sharpnessSlider.value = Number(p.videoSharpness)
         brightnessSlider.value = Number(p.colorBrightness)
@@ -140,6 +142,7 @@ NavigableDialog {
             windowMode: Math.round(windowModeModel.get(windowModeComboBox.currentIndex).val),
             enableHdr: hdrCheck.checked,
             absoluteMouseMode: mouseCheck.checked,
+            controllerTypeOverride: Math.round(controllerTypeModel.get(controllerTypeComboBox.currentIndex).val),
             videoSharpening: sharpenCheck.checked,
             videoSharpness: Math.round(sharpnessSlider.value),
             colorBrightness: Math.round(brightnessSlider.value),
@@ -156,6 +159,13 @@ NavigableDialog {
     }
 
     ListModel { id: addressModel }
+
+    ListModel {
+        id: controllerTypeModel
+        ListElement { text: qsTr("Automatic"); val: StreamingPreferences.CTO_AUTO }
+        ListElement { text: qsTr("Xbox"); val: StreamingPreferences.CTO_XBOX }
+        ListElement { text: qsTr("PlayStation (DualShock 4)"); val: StreamingPreferences.CTO_PLAYSTATION }
+    }
 
     ListModel {
         id: windowModeModel
@@ -293,6 +303,14 @@ NavigableDialog {
                     id: windowModeComboBox
                     Layout.fillWidth: true
                     model: windowModeModel
+                    textRole: "text"
+                }
+
+                Label { text: qsTr("Controller type") }
+                ComboBox {
+                    id: controllerTypeComboBox
+                    Layout.fillWidth: true
+                    model: controllerTypeModel
                     textRole: "text"
                 }
 

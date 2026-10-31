@@ -178,6 +178,15 @@ public:
     QImage
     getBoxArt(int appId);
 
+    // Text clipboard sync with the host while streaming. This is an Apollo
+    // extension (not supported by GFE or standard Sunshine), and the client
+    // must be granted the clipboard permissions in Apollo. Throws on failure.
+    QString
+    getHostClipboard();
+
+    void
+    setHostClipboard(const QString& text);
+
     static
     QVector<NvDisplayMode>
     getDisplayModeList(QString serverInfo);
@@ -193,7 +202,8 @@ private:
                    QString command,
                    QString arguments,
                    int timeoutMs,
-                   NvLogLevel logLevel);
+                   NvLogLevel logLevel,
+                   const QByteArray* postBody = nullptr);
 
     NvAddress m_Address;
     QNetworkAccessManager* m_Nam;

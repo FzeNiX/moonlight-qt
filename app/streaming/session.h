@@ -263,6 +263,11 @@ private:
 
     void applyVideoAdjustments();
     void setVideoAdjustment(int index, int value);
+    bool isMenuItemSelectable(int index);
+    void activateMenuItem(int index);
+    void sendClipboardToHost();
+    void fetchClipboardFromHost();
+    void handleClipboardResult(void* data);
     void updateVideoAdjustmentMenu();
     void closeVideoAdjustmentMenu();
     bool handleVideoAdjustmentMenuEvent(const SDL_Event* event);
@@ -274,8 +279,9 @@ private:
     // Current live video adjustments, in the same units as the preferences
     // (sharpness 0-100 where 0 is off, brightness/contrast/saturation in percent)
     int m_LiveVideoAdjustments[VA_MAX];
-    VideoAdjustment m_SelectedVideoAdjustment;
-    bool m_VideoAdjustMenuOpen;
+    int m_MenuSelection;          // Index of the selected menu item
+    QVector<int> m_MenuActions;   // Action for each menu item (see MenuAction)
+    bool m_ClipboardBusy;    bool m_VideoAdjustMenuOpen;
     bool m_VideoAdjustMenuRestoreCapture;
     int m_VideoAdjustMenuDragIndex;
     bool m_IsFullScreen;

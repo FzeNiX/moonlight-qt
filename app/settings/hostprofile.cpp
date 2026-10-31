@@ -16,7 +16,7 @@ static const QSet<QString> k_AllowedKeys = {
     "windowMode", "enableVsync", "framePacing",
     "enableHdr", "enableYUV444", "videoCodecConfig",
     "audioConfig", "playAudioOnHost", "gameOptimizations", "quitAppAfter",
-    "absoluteMouseMode",
+    "absoluteMouseMode", "controllerTypeOverride",
     "videoSharpening", "videoSharpness",
     "colorBrightness", "colorContrast", "colorSaturation",
     "showPerformanceOverlay", "performanceOverlayMode", "performanceOverlayPosition",

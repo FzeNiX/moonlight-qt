@@ -703,37 +703,44 @@ SDL_Surface* OverlayManager::RenderTextPanel(TTF_Font* font, const char* text, S
     return surface;
 }
 
+static int textWidth(TTF_Font* font, const QString& text)
+{
+    int w = 0;
+    if (!text.isEmpty()) {
+        TTF_SizeUTF8(font, text.toUtf8().constData(), &w, nullptr);
+    }
+    return w;
+}
+
 QSize OverlayManager::MeasureMenu(TTF_Font* font, const OverlayMenu& menu)
 {
     int lineH = TTF_FontHeight(font);
-    int labelW = 0, valueW = 0, w;
+    int labelW = 0, valueW = 0, otherW = 0;
 
     for (const OverlayMenuItem& item : menu.items) {
-        if (TTF_SizeUTF8(font, item.label.toUtf8().constData(), &w, nullptr) == 0) {
-            labelW = SDL_max(labelW, w);
-        }
-        if (TTF_SizeUTF8(font, item.valueText.toUtf8().constData(), &w, nullptr) == 0) {
-            valueW = SDL_max(valueW, w);
+        switch (item.kind) {
+        case OverlayMenuItem::Slider:
+            labelW = SDL_max(labelW, textWidth(font, item.label));
+            valueW = SDL_max(valueW, textWidth(font, item.valueText));
+            break;
+        case OverlayMenuItem::Info:
+            otherW = SDL_max(otherW, textWidth(font, item.label) + k_MenuColumnGap + textWidth(font, item.valueText));
+            break;
+        case OverlayMenuItem::Button:
+            otherW = SDL_max(otherW, textWidth(font, item.label) + 2 * k_MenuButtonPadX);
+            break;
+        case OverlayMenuItem::Header:
+            otherW = SDL_max(otherW, textWidth(font, item.label));
+            break;
         }
     }
     // Keep the layout stable while values change (e.g. "5%" -> "100%")
-    if (TTF_SizeUTF8(font, "+100%", &w, nullptr) == 0) {
-        valueW = SDL_max(valueW, w);
-    }
+    valueW = SDL_max(valueW, textWidth(font, "+100%"));
 
-    int rowsWidth = labelW + k_MenuColumnGap + k_MenuTrackWidth + k_MenuColumnGap + valueW;
-
-    int titleW = 0, buttonsW = 0, hintW = 0;
-    TTF_SizeUTF8(font, menu.title.toUtf8().constData(), &titleW, nullptr);
-    int resetW = 0, closeW = 0;
-    TTF_SizeUTF8(font, "Reset", &resetW, nullptr);
-    TTF_SizeUTF8(font, "X", &closeW, nullptr);
-    buttonsW = resetW + closeW + 4 * k_MenuButtonPadX + k_MenuColumnGap;
-    if (!menu.hint.isEmpty()) {
-        TTF_SizeUTF8(font, menu.hint.toUtf8().constData(), &hintW, nullptr);
-    }
-
-    int width = SDL_max(SDL_max(rowsWidth, titleW + k_MenuColumnGap + buttonsW), hintW);
+    int rowsWidth = SDL_max(labelW + k_MenuColumnGap + k_MenuTrackWidth + k_MenuColumnGap + valueW, otherW);
+    int buttonsW = textWidth(font, "Reset") + textWidth(font, "X") + 4 * k_MenuButtonPadX + k_MenuColumnGap;
+    int width = SDL_max(SDL_max(rowsWidth, textWidth(font, menu.title) + k_MenuColumnGap + buttonsW),
+                        textWidth(font, menu.hint));
     int height = (lineH + k_MenuRowPadding) +                          // Title row
                  menu.items.count() * (lineH + k_MenuRowPadding) +     // Item rows
                  (menu.hint.isEmpty() ? 0 : lineH + 4);                // Hint
@@ -776,11 +783,11 @@ void OverlayManager::DrawMenu(SDL_Surface* surface, TTF_Font* font, int x, int y
         return r;
     };
 
-    // Measure columns the same way as MeasureMenu()
-    int labelW = 0, w;
+    // Measure the slider label column the same way as MeasureMenu()
+    int labelW = 0;
     for (const OverlayMenuItem& item : menu.items) {
-        if (TTF_SizeUTF8(font, item.label.toUtf8().constData(), &w, nullptr) == 0) {
-            labelW = SDL_max(labelW, w);
+        if (item.kind == OverlayMenuItem::Slider) {
+            labelW = SDL_max(labelW, textWidth(font, item.label));
         }
     }
 
@@ -797,11 +804,37 @@ void OverlayManager::DrawMenu(SDL_Surface* surface, TTF_Font* font, int x, int y
         QRect row(x - 4, rowY, width + 8, rowH);
         QRect track(x + labelW + k_MenuColumnGap, rowY + (rowH - k_MenuTrackHeight) / 2, k_MenuTrackWidth, k_MenuTrackHeight);
 
-        if (i == menu.selected) {
+        if (i == menu.selected && (item.kind == OverlayMenuItem::Slider || item.kind == OverlayMenuItem::Button)) {
             fillRect(row, {0x36, 0x40, 0x52, 0xF0});
         }
 
         SDL_Color textColor = item.enabled ? white : gray;
+
+        if (item.kind != OverlayMenuItem::Slider) {
+            switch (item.kind) {
+            case OverlayMenuItem::Header:
+                drawText(item.label, x, rowY + k_MenuRowPadding / 2 + 2, accent);
+                break;
+            case OverlayMenuItem::Info:
+                drawText(item.label, x, rowY + k_MenuRowPadding / 2, white);
+                drawText(item.valueText, x + width - textWidth(font, item.valueText), rowY + k_MenuRowPadding / 2, gray);
+                break;
+            case OverlayMenuItem::Button: {
+                QRect button(x, rowY + 3, textWidth(font, item.label) + 2 * k_MenuButtonPadX, rowH - 6);
+                fillRect(button, item.enabled ? SDL_Color{0x50, 0x50, 0x5A, 0xF0} : SDL_Color{0x3A, 0x3A, 0x40, 0xF0});
+                drawText(item.label, button.x() + k_MenuButtonPadX, rowY + k_MenuRowPadding / 2, textColor);
+                break;
+            }
+            default:
+                break;
+            }
+
+            layout.rows.append(row);
+            layout.tracks.append(QRect()); // No slider
+            rowY += rowH;
+            continue;
+        }
+
         drawText(item.label, x, rowY + k_MenuRowPadding / 2, textColor);
 
         // Slider track, filled portion, and knob

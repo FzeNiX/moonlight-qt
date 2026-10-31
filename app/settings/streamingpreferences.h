@@ -123,6 +123,16 @@ public:
     };
     Q_ENUM(CaptureSysKeysMode);
 
+    // Controller type reported to the host, which picks the emulated gamepad
+    // from it when the host's gamepad setting is "auto"
+    enum ControllerTypeOverride
+    {
+        CTO_AUTO,
+        CTO_XBOX,
+        CTO_PLAYSTATION
+    };
+    Q_ENUM(ControllerTypeOverride);
+
     // Must match the order of Overlay::DebugOverlayMode
     enum PerformanceOverlayMode
     {
@@ -164,6 +174,7 @@ public:
     Q_PROPERTY(PerformanceOverlayMode performanceOverlayMode MEMBER performanceOverlayMode NOTIFY performanceOverlayModeChanged)
     Q_PROPERTY(PerformanceOverlayPosition performanceOverlayPosition MEMBER performanceOverlayPosition NOTIFY performanceOverlayPositionChanged)
     Q_PROPERTY(bool videoSharpening MEMBER videoSharpening NOTIFY videoSharpeningChanged)
+    Q_PROPERTY(ControllerTypeOverride controllerTypeOverride MEMBER controllerTypeOverride NOTIFY controllerTypeOverrideChanged)
     Q_PROPERTY(int videoSharpness MEMBER videoSharpness NOTIFY videoSharpnessChanged)
     Q_PROPERTY(int colorBrightness MEMBER colorBrightness NOTIFY colorAdjustmentsChanged)
     Q_PROPERTY(int colorContrast MEMBER colorContrast NOTIFY colorAdjustmentsChanged)
@@ -213,6 +224,7 @@ public:
     PerformanceOverlayMode performanceOverlayMode;
     PerformanceOverlayPosition performanceOverlayPosition;
     bool videoSharpening;
+    ControllerTypeOverride controllerTypeOverride;
     int videoSharpness; // 0-100
     int colorBrightness; // -30 to 30 (percent of full scale), 0 = neutral
     int colorContrast; // 50 to 150 (percent), 100 = neutral
@@ -267,6 +279,7 @@ signals:
     void performanceOverlayModeChanged();
     void performanceOverlayPositionChanged();
     void videoSharpeningChanged();
+    void controllerTypeOverrideChanged();
     void videoSharpnessChanged();
     void colorAdjustmentsChanged();
     void mouseButtonsChanged();

@@ -5,6 +5,10 @@
 
 #include "SDL_compat.h"
 
+#include <QPair>
+#include <QString>
+#include <QVector>
+
 struct GamepadState {
     SDL_GameController* controller;
     SDL_JoystickID jsId;
@@ -134,6 +138,9 @@ public:
 
     void raiseAllKeys();
 
+    // Name and connection/battery status of each connected gamepad, for display
+    QVector<QPair<QString, QString>> getControllerDescriptions();
+
     void notifyMouseLeave();
 
     void notifyFocusLost();
@@ -212,6 +219,7 @@ private:
     bool m_SwapMouseButtons;
     bool m_ReverseScrollDirection;
     bool m_SwapFaceButtons;
+    StreamingPreferences::ControllerTypeOverride m_ControllerTypeOverride;
 
     bool m_NeedsManualCaptureOnLeave;
     bool m_MouseWasInVideoRegion;

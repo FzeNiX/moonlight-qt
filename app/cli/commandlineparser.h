@@ -74,6 +74,7 @@ private:
     QMap<QString, StreamingPreferences::CaptureSysKeysMode> m_CaptureSysKeysModeMap;
     QMap<QString, StreamingPreferences::PerformanceOverlayMode> m_PerfOverlayModeMap;
     QMap<QString, StreamingPreferences::PerformanceOverlayPosition> m_PerfOverlayPositionMap;
+    QMap<QString, StreamingPreferences::ControllerTypeOverride> m_ControllerTypeMap;
 };
 
 class ListCommandLineParser

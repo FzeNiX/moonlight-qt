@@ -478,12 +478,27 @@ NvHTTP::openConnectionToString(QUrl baseUrl,
     return ret;
 }
 
+QString
+NvHTTP::getHostClipboard()
+{
+    return openConnectionToString(m_BaseUrlHttps, "actions/clipboard", "type=text", 5000, NvLogLevel::NVLL_ERROR);
+}
+
+void
+NvHTTP::setHostClipboard(const QString& text)
+{
+    QByteArray body = text.toUtf8();
+    QNetworkReply* reply = openConnection(m_BaseUrlHttps, "actions/clipboard", "type=text", 5000, NvLogLevel::NVLL_ERROR, &body);
+    delete reply;
+}
+
 QNetworkReply*
 NvHTTP::openConnection(QUrl baseUrl,
                        QString command,
                        QString arguments,
                        int timeoutMs,
-                       NvLogLevel logLevel)
+                       NvLogLevel logLevel,
+                       const QByteArray* postBody)
 {
     // Port must be set
     Q_ASSERT(baseUrl.port(0) != 0);
@@ -518,7 +533,14 @@ NvHTTP::openConnection(QUrl baseUrl,
 #endif
 
     auto sslErrorsConnection = connect(m_Nam, &QNetworkAccessManager::sslErrors, this, &NvHTTP::handleSslErrors);
-    QNetworkReply* reply = m_Nam->get(request);
+    QNetworkReply* reply;
+    if (postBody != nullptr) {
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "text/plain; charset=utf-8");
+        reply = m_Nam->post(request, *postBody);
+    }
+    else {
+        reply = m_Nam->get(request);
+    }
     QEventLoop loop;
 
     // Connect the quit signals

@@ -326,6 +326,11 @@ StreamCommandLineParser::StreamCommandLineParser()
         {"compact", StreamingPreferences::POM_COMPACT},
         {"mini",    StreamingPreferences::POM_MINI},
     };
+    m_ControllerTypeMap = {
+        {"auto",        StreamingPreferences::CTO_AUTO},
+        {"xbox",        StreamingPreferences::CTO_XBOX},
+        {"playstation", StreamingPreferences::CTO_PLAYSTATION},
+    };
     m_PerfOverlayPositionMap = {
         {"left",  StreamingPreferences::POP_TOP_LEFT},
         {"right", StreamingPreferences::POP_TOP_RIGHT},
@@ -378,6 +383,7 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
     parser.addChoiceOption("performance-overlay-mode", "performance overlay layout", m_PerfOverlayModeMap.keys());
     parser.addChoiceOption("performance-overlay-position", "performance overlay position", m_PerfOverlayPositionMap.keys());
     parser.addToggleOption("video-sharpening", "FSR RCAS video sharpening");
+    parser.addChoiceOption("controller-type", "controller type reported to the host", m_ControllerTypeMap.keys());
     parser.addValueOption("video-sharpness", "video sharpening strength (0-100)");
     parser.addToggleOption("hdr", "HDR streaming");
     parser.addToggleOption("yuv444", "YUV 4:4:4 sampling, if supported");
@@ -506,6 +512,11 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
     // Resolve --performance-overlay-position option
     if (parser.isSet("performance-overlay-position")) {
         preferences->performanceOverlayPosition = mapValue(m_PerfOverlayPositionMap, parser.getChoiceOptionValue("performance-overlay-position"));
+    }
+
+    // Resolve --controller-type option
+    if (parser.isSet("controller-type")) {
+        preferences->controllerTypeOverride = mapValue(m_ControllerTypeMap, parser.getChoiceOptionValue("controller-type"));
     }
 
     // Resolve --video-sharpening and --no-video-sharpening options

@@ -29,6 +29,7 @@
 #define SDL_CODE_GAMECONTROLLER_SET_MOTION_EVENT_STATE 103
 #define SDL_CODE_GAMECONTROLLER_SET_CONTROLLER_LED 104
 #define SDL_CODE_GAMECONTROLLER_SET_ADAPTIVE_TRIGGERS 105
+#define SDL_CODE_CLIPBOARD_RESULT 106
 
 #include <openssl/rand.h>
 
@@ -621,7 +622,8 @@ Session::Session(NvComputer* computer, NvApp& app, StreamingPreferences *prefere
     m_LiveVideoAdjustments[VA_BRIGHTNESS] = m_Preferences->colorBrightness;
     m_LiveVideoAdjustments[VA_CONTRAST] = m_Preferences->colorContrast;
     m_LiveVideoAdjustments[VA_SATURATION] = m_Preferences->colorSaturation;
-    m_SelectedVideoAdjustment = VA_SHARPNESS;
+    m_MenuSelection = 0;
+    m_ClipboardBusy = false;
     m_VideoAdjustMenuOpen = false;
     m_VideoAdjustMenuRestoreCapture = false;
     m_VideoAdjustMenuDragIndex = -1;
@@ -639,6 +641,87 @@ static const VideoAdjustmentInfo k_VideoAdjustments[] = {
     { "Brightness", -30, 30, 1, VIDEO_ADJUST_COLOR },
     { "Contrast",   50, 150, 2, VIDEO_ADJUST_COLOR },
     { "Saturation", 0, 200, 5, VIDEO_ADJUST_COLOR },
+};
+
+// Menu actions (one per menu item)
+enum MenuAction {
+    MA_NONE = -1,           // Headers and info rows
+    // 0 .. VA_MAX-1 are the video adjustment sliders
+    MA_SEND_CLIPBOARD = 100,
+    MA_GET_CLIPBOARD,
+};
+
+// Result of a clipboard request, passed from the worker thread to the main loop
+struct ClipboardResult {
+    bool fetch;
+    bool success;
+    QString text;    // Host clipboard contents (fetch only)
+    QString message; // Error description on failure
+};
+
+class ClipboardTask : public QRunnable
+{
+public:
+    ClipboardTask(NvComputer* computer, bool fetch, const QString& text)
+        : m_Computer(computer), m_Fetch(fetch), m_Text(text) {}
+
+    void run() override
+    {
+        auto result = new ClipboardResult();
+        result->fetch = m_Fetch;
+        result->success = false;
+
+        try {
+            NvHTTP http(m_Computer);
+            if (m_Fetch) {
+                result->text = http.getHostClipboard();
+            }
+            else {
+                http.setHostClipboard(m_Text);
+            }
+            result->success = true;
+        }
+        catch (const QtNetworkReplyException& e) {
+            switch (e.getError()) {
+            case QNetworkReply::ContentNotFoundError:
+            case QNetworkReply::ContentOperationNotPermittedError:
+                result->message = "This host doesn't support clipboard sync (it requires Apollo)";
+                break;
+            case QNetworkReply::AuthenticationRequiredError:
+                result->message = "Apollo denied access. Allow clipboard for this client in Apollo's web UI";
+                break;
+            case QNetworkReply::ContentAccessDenied:
+                result->message = "The host doesn't see an active stream from this client";
+                break;
+            case QNetworkReply::TimeoutError:
+                result->message = "The host didn't respond in time";
+                break;
+            default:
+                result->message = QString("Request failed: %1").arg(e.getErrorText());
+                break;
+            }
+        }
+        catch (const GfeHttpResponseException& e) {
+            result->message = QString("Request failed: %1").arg(e.toQString());
+        }
+        catch (...) {
+            result->message = "Request failed";
+        }
+
+        // Clipboard and overlay updates happen on the main loop
+        SDL_Event event = {};
+        event.type = SDL_USEREVENT;
+        event.user.code = SDL_CODE_CLIPBOARD_RESULT;
+        event.user.data1 = result;
+        if (SDL_PushEvent(&event) <= 0) {
+            delete result;
+        }
+    }
+
+private:
+    NvComputer* m_Computer;
+    bool m_Fetch;
+    QString m_Text;
 };
 
 void Session::toggleVideoAdjustmentMenu()
@@ -674,16 +757,119 @@ void Session::closeVideoAdjustmentMenu()
     }
 }
 
+bool Session::isMenuItemSelectable(int index)
+{
+    return index >= 0 && index < m_MenuActions.count() && m_MenuActions[index] != MA_NONE;
+}
+
 void Session::selectVideoAdjustment(int direction)
 {
-    m_SelectedVideoAdjustment = (VideoAdjustment)((m_SelectedVideoAdjustment + direction + VA_MAX) % VA_MAX);
+    // Move to the next selectable item (sliders and buttons), wrapping around
+    int count = m_MenuActions.count();
+    if (count == 0) {
+        return;
+    }
+    int index = m_MenuSelection;
+    for (int i = 0; i < count; i++) {
+        index = (index + direction + count) % count;
+        if (isMenuItemSelectable(index)) {
+            m_MenuSelection = index;
+            break;
+        }
+    }
     updateVideoAdjustmentMenu();
 }
 
 void Session::changeVideoAdjustment(int steps)
 {
-    const VideoAdjustmentInfo& info = k_VideoAdjustments[m_SelectedVideoAdjustment];
-    setVideoAdjustment(m_SelectedVideoAdjustment, m_LiveVideoAdjustments[m_SelectedVideoAdjustment] + steps * info.step);
+    // Only sliders can be changed (and they are the first items in the menu)
+    if (m_MenuSelection < 0 || m_MenuSelection >= VA_MAX) {
+        return;
+    }
+
+    const VideoAdjustmentInfo& info = k_VideoAdjustments[m_MenuSelection];
+    setVideoAdjustment(m_MenuSelection, m_LiveVideoAdjustments[m_MenuSelection] + steps * info.step);
+}
+
+void Session::activateMenuItem(int index)
+{
+    if (!isMenuItemSelectable(index)) {
+        return;
+    }
+
+    m_MenuSelection = index;
+    switch (m_MenuActions[index]) {
+    case MA_SEND_CLIPBOARD:
+        sendClipboardToHost();
+        break;
+    case MA_GET_CLIPBOARD:
+        fetchClipboardFromHost();
+        break;
+    default:
+        break;
+    }
+    updateVideoAdjustmentMenu();
+}
+
+void Session::sendClipboardToHost()
+{
+    if (m_ClipboardBusy) {
+        return;
+    }
+
+    QString text;
+    char* clipboardText = SDL_HasClipboardText() ? SDL_GetClipboardText() : nullptr;
+    if (clipboardText != nullptr) {
+        text = QString::fromUtf8(clipboardText);
+        SDL_free(clipboardText);
+    }
+    if (text.isEmpty()) {
+        m_OverlayManager.showDebugNotification("Clipboard: there's no text on this PC's clipboard", 3000);
+        return;
+    }
+
+    m_ClipboardBusy = true;
+    m_OverlayManager.showDebugNotification("Clipboard: sending to host...", 5000);
+    QThreadPool::globalInstance()->start(new ClipboardTask(m_Computer, false, text));
+}
+
+void Session::fetchClipboardFromHost()
+{
+    if (m_ClipboardBusy) {
+        return;
+    }
+
+    m_ClipboardBusy = true;
+    m_OverlayManager.showDebugNotification("Clipboard: getting from host...", 5000);
+    QThreadPool::globalInstance()->start(new ClipboardTask(m_Computer, true, QString()));
+}
+
+void Session::handleClipboardResult(void* data)
+{
+    auto result = (ClipboardResult*)data;
+    m_ClipboardBusy = false;
+
+    if (!result->success) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                    "Clipboard %s failed: %s",
+                    result->fetch ? "fetch" : "send",
+                    qPrintable(result->message));
+        m_OverlayManager.showDebugNotification("Clipboard: " + result->message, 5000);
+    }
+    else if (result->fetch) {
+        if (result->text.isEmpty()) {
+            m_OverlayManager.showDebugNotification("Clipboard: the host's clipboard has no text", 3000);
+        }
+        else {
+            SDL_SetClipboardText(result->text.toUtf8().constData());
+            m_OverlayManager.showDebugNotification(QString("Clipboard: copied %1 characters from the host").arg(result->text.length()), 3000);
+        }
+    }
+    else {
+        m_OverlayManager.showDebugNotification("Clipboard: sent to the host", 3000);
+    }
+
+    delete result;
 }
 
 void Session::setVideoAdjustment(int index, int value)
@@ -742,13 +928,20 @@ void Session::updateVideoAdjustmentMenu()
     SDL_UnlockMutex(m_DecoderLock);
 
     Overlay::OverlayMenu menu;
-    menu.title = "Video adjustments";
-    menu.hint = "Drag or scroll to adjust. Esc closes.";
-    menu.selected = m_SelectedVideoAdjustment;
+    menu.title = "Stream menu";
+    menu.hint = "Drag or scroll sliders. Esc closes.";
+    m_MenuActions.clear();
 
+    auto addItem = [&](const Overlay::OverlayMenuItem& item, int action) {
+        menu.items.append(item);
+        m_MenuActions.append(action);
+    };
+
+    // Video adjustment sliders (must be first, so item index == VideoAdjustment)
     for (int i = 0; i < VA_MAX; i++) {
         const VideoAdjustmentInfo& info = k_VideoAdjustments[i];
         Overlay::OverlayMenuItem item;
+        item.kind = Overlay::OverlayMenuItem::Slider;
         item.label = info.name;
         item.value = m_LiveVideoAdjustments[i];
         item.minimum = info.min;
@@ -768,8 +961,57 @@ void Session::updateVideoAdjustmentMenu()
             item.valueText = QString("%1%").arg(item.value);
         }
 
-        menu.items.append(item);
+        addItem(item, i);
     }
+
+    // Clipboard sync (Apollo hosts)
+    {
+        Overlay::OverlayMenuItem header;
+        header.kind = Overlay::OverlayMenuItem::Header;
+        header.label = "Clipboard (Apollo hosts)";
+        addItem(header, MA_NONE);
+
+        Overlay::OverlayMenuItem send;
+        send.kind = Overlay::OverlayMenuItem::Button;
+        send.label = "Send this PC's clipboard to host";
+        send.enabled = !m_ClipboardBusy;
+        addItem(send, MA_SEND_CLIPBOARD);
+
+        Overlay::OverlayMenuItem get;
+        get.kind = Overlay::OverlayMenuItem::Button;
+        get.label = "Copy host's clipboard to this PC";
+        get.enabled = !m_ClipboardBusy;
+        addItem(get, MA_GET_CLIPBOARD);
+    }
+
+    // Connected controllers
+    {
+        static const char* const k_TypeNames[] = { "automatic", "Xbox", "PlayStation" };
+        Overlay::OverlayMenuItem header;
+        header.kind = Overlay::OverlayMenuItem::Header;
+        header.label = QString("Controllers (sent to host as: %1)").arg(k_TypeNames[qBound(0, (int)m_Preferences->controllerTypeOverride, 2)]);
+        addItem(header, MA_NONE);
+
+        auto controllers = m_InputHandler->getControllerDescriptions();
+        if (controllers.isEmpty()) {
+            Overlay::OverlayMenuItem none;
+            none.kind = Overlay::OverlayMenuItem::Info;
+            none.label = "No controllers connected";
+            addItem(none, MA_NONE);
+        }
+        for (const auto& controller : controllers) {
+            Overlay::OverlayMenuItem info;
+            info.kind = Overlay::OverlayMenuItem::Info;
+            info.label = controller.first;
+            info.valueText = controller.second;
+            addItem(info, MA_NONE);
+        }
+    }
+
+    if (!isMenuItemSelectable(m_MenuSelection)) {
+        m_MenuSelection = 0;
+    }
+    menu.selected = m_MenuSelection;
 
     m_OverlayManager.setDebugMenu(menu);
 }
@@ -837,6 +1079,11 @@ bool Session::handleVideoAdjustmentMenuEvent(const SDL_Event* event)
         case SDLK_RIGHT:
             changeVideoAdjustment(1);
             break;
+        case SDLK_RETURN:
+        case SDLK_KP_ENTER:
+        case SDLK_SPACE:
+            activateMenuItem(m_MenuSelection);
+            break;
         case SDLK_r:
             resetVideoAdjustments();
             break;
@@ -857,17 +1104,25 @@ bool Session::handleVideoAdjustmentMenuEvent(const SDL_Event* event)
         if (windowToOverlayPoint(event->button.x, event->button.y, &ox, &oy)) {
             Overlay::OverlayMenuHit hit = m_OverlayManager.hitTestDebugMenu(ox, oy);
             switch (hit.kind) {
-            case Overlay::OverlayMenuHit::Track: {
-                const VideoAdjustmentInfo& info = k_VideoAdjustments[hit.index];
-                m_SelectedVideoAdjustment = (VideoAdjustment)hit.index;
-                m_VideoAdjustMenuDragIndex = hit.index;
-                setVideoAdjustment(hit.index, info.min + qRound(hit.fraction * (info.max - info.min)));
-                updateVideoAdjustmentMenu();
+            case Overlay::OverlayMenuHit::Track:
+                if (hit.index >= 0 && hit.index < VA_MAX) {
+                    const VideoAdjustmentInfo& info = k_VideoAdjustments[hit.index];
+                    m_MenuSelection = hit.index;
+                    m_VideoAdjustMenuDragIndex = hit.index;
+                    setVideoAdjustment(hit.index, info.min + qRound(hit.fraction * (info.max - info.min)));
+                    updateVideoAdjustmentMenu();
+                }
                 break;
-            }
             case Overlay::OverlayMenuHit::Item:
-                m_SelectedVideoAdjustment = (VideoAdjustment)hit.index;
-                updateVideoAdjustmentMenu();
+                if (isMenuItemSelectable(hit.index)) {
+                    if (hit.index < VA_MAX) {
+                        m_MenuSelection = hit.index;
+                        updateVideoAdjustmentMenu();
+                    }
+                    else {
+                        activateMenuItem(hit.index);
+                    }
+                }
                 break;
             case Overlay::OverlayMenuHit::Reset:
                 resetVideoAdjustments();
@@ -898,13 +1153,14 @@ bool Session::handleVideoAdjustmentMenuEvent(const SDL_Event* event)
         return true;
 
     case SDL_MOUSEWHEEL: {
-        // Scroll adjusts the item under the cursor (or the selected one)
+        // Scroll adjusts the slider under the cursor (or the selected one)
         int mouseX, mouseY;
         SDL_GetMouseState(&mouseX, &mouseY);
         if (windowToOverlayPoint(mouseX, mouseY, &ox, &oy)) {
             Overlay::OverlayMenuHit hit = m_OverlayManager.hitTestDebugMenu(ox, oy);
-            if (hit.kind == Overlay::OverlayMenuHit::Track || hit.kind == Overlay::OverlayMenuHit::Item) {
-                m_SelectedVideoAdjustment = (VideoAdjustment)hit.index;
+            if ((hit.kind == Overlay::OverlayMenuHit::Track || hit.kind == Overlay::OverlayMenuHit::Item) &&
+                    hit.index >= 0 && hit.index < VA_MAX) {
+                m_MenuSelection = hit.index;
             }
         }
 
@@ -2410,6 +2666,9 @@ void Session::exec()
             case SDL_CODE_GAMECONTROLLER_SET_ADAPTIVE_TRIGGERS:
                 m_InputHandler->setAdaptiveTriggers((uint16_t)(uintptr_t)event.user.data1,
                                                     (DualSenseOutputReport *)event.user.data2);
+                break;
+            case SDL_CODE_CLIPBOARD_RESULT:
+                handleClipboardResult(event.user.data1);
                 break;
             default:
                 SDL_assert(false);

@@ -47,6 +47,7 @@
 #define SER_PERFOVERLAYMODE "perfoverlaymode"
 #define SER_PERFOVERLAYPOS "perfoverlaypos"
 #define SER_VIDEOSHARPENING "videosharpening"
+#define SER_CONTROLLERTYPE "controllertype"
 #define SER_VIDEOSHARPNESS "videosharpness"
 #define SER_COLORBRIGHTNESS "colorbrightness"
 #define SER_COLORCONTRAST "colorcontrast"
@@ -179,6 +180,9 @@ void StreamingPreferences::reload()
     performanceOverlayPosition = static_cast<PerformanceOverlayPosition>(settings.value(SER_PERFOVERLAYPOS,
                                                                          static_cast<int>(PerformanceOverlayPosition::POP_TOP_LEFT)).toInt());
     videoSharpening = settings.value(SER_VIDEOSHARPENING, false).toBool();
+    controllerTypeOverride = static_cast<ControllerTypeOverride>(qBound(static_cast<int>(CTO_AUTO),
+                                                                        settings.value(SER_CONTROLLERTYPE, static_cast<int>(CTO_AUTO)).toInt(),
+                                                                        static_cast<int>(CTO_PLAYSTATION)));
     videoSharpness = qBound(0, settings.value(SER_VIDEOSHARPNESS, 50).toInt(), 100);
     colorBrightness = qBound(-30, settings.value(SER_COLORBRIGHTNESS, 0).toInt(), 30);
     colorContrast = qBound(50, settings.value(SER_COLORCONTRAST, 100).toInt(), 150);
@@ -387,6 +391,7 @@ void StreamingPreferences::save()
     settings.setValue(SER_PERFOVERLAYMODE, static_cast<int>(performanceOverlayMode));
     settings.setValue(SER_PERFOVERLAYPOS, static_cast<int>(performanceOverlayPosition));
     settings.setValue(SER_VIDEOSHARPENING, videoSharpening);
+    settings.setValue(SER_CONTROLLERTYPE, static_cast<int>(controllerTypeOverride));
     settings.setValue(SER_VIDEOSHARPNESS, videoSharpness);
     settings.setValue(SER_COLORBRIGHTNESS, colorBrightness);
     settings.setValue(SER_COLORCONTRAST, colorContrast);

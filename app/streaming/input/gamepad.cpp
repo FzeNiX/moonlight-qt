@@ -782,6 +782,27 @@ void SdlInputHandler::handleControllerDeviceEvent(SDL_ControllerDeviceEvent* eve
             break;
         }
 
+        // Optionally report a different controller type. When the host's gamepad
+        // setting is "auto", Sunshine/Apollo choose the emulated controller from
+        // this type (and from motion/touchpad support, which would otherwise make
+        // them pick a DualShock 4).
+        switch (m_ControllerTypeOverride) {
+        case StreamingPreferences::CTO_XBOX:
+            type = LI_CTYPE_XBOX;
+            capabilities &= ~(LI_CCAP_ACCEL | LI_CCAP_GYRO | LI_CCAP_TOUCHPAD | LI_CCAP_DUAL_TOUCHPAD);
+            break;
+        case StreamingPreferences::CTO_PLAYSTATION:
+            type = LI_CTYPE_PS;
+            break;
+        case StreamingPreferences::CTO_AUTO:
+        default:
+            break;
+        }
+
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                    "Reporting controller %d to host as type %d (capabilities 0x%x)",
+                    state->index, type, capabilities);
+
         // If this is a PlayStation controller that doesn't have a touchpad button mapped,
         // we'll allow the Select+PS button combo to act as the touchpad.
         state->clickpadButtonEmulationEnabled =
@@ -1096,4 +1117,46 @@ int SdlInputHandler::getAttachedGamepadMask()
     }
 
     return mask;
+}
+
+QVector<QPair<QString, QString>> SdlInputHandler::getControllerDescriptions()
+{
+    QVector<QPair<QString, QString>> descriptions;
+
+    for (int i = 0; i < MAX_GAMEPADS; i++) {
+        GamepadState& state = m_GamepadState[i];
+        if (state.controller == nullptr) {
+            continue;
+        }
+
+        const char* name = SDL_GameControllerName(state.controller);
+        QString label = QString("#%1 %2").arg(state.index + 1).arg(name != nullptr ? QString::fromUtf8(name) : QString("Controller"));
+
+        // SDL2 only reports coarse battery levels
+        QString status;
+        switch (SDL_JoystickCurrentPowerLevel(SDL_GameControllerGetJoystick(state.controller))) {
+        case SDL_JOYSTICK_POWER_EMPTY:
+            status = "Battery empty";
+            break;
+        case SDL_JOYSTICK_POWER_LOW:
+            status = "Battery low";
+            break;
+        case SDL_JOYSTICK_POWER_MEDIUM:
+            status = "Battery medium";
+            break;
+        case SDL_JOYSTICK_POWER_FULL:
+            status = "Battery full";
+            break;
+        case SDL_JOYSTICK_POWER_WIRED:
+            status = "Wired";
+            break;
+        default:
+            status = "Battery unknown";
+            break;
+        }
+
+        descriptions.append(qMakePair(label, status));
+    }
+
+    return descriptions;
 }

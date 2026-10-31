@@ -50,7 +50,8 @@ private:
                                 TestMode testMode,
                                 bool useAlternateFrontend);
 
-    void stringifyVideoStats(VIDEO_STATS& stats, char* output, int length);
+    void stringifyVideoStats(VIDEO_STATS& stats, char* output, int length,
+                             Overlay::DebugOverlayMode mode = Overlay::DebugOverlayModeFull);
 
     void logVideoStats(VIDEO_STATS& stats, const char* title);
 

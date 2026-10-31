@@ -212,8 +212,8 @@ void EGLRenderer::renderOverlay(Overlay::OverlayType type, int viewportWidth, in
             overlayRect.y = 0;
         }
         else if (type == Overlay::OverlayDebug) {
-            // Top left
-            overlayRect.x = 0;
+            // Top left or top right
+            overlayRect.x = Session::get()->getOverlayManager().isOverlayRightAligned(type) ? viewportWidth - newSurface->w : 0;
             overlayRect.y = viewportHeight - newSurface->h;
         } else {
             SDL_assert(false);

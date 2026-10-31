@@ -119,6 +119,23 @@ public:
     };
     Q_ENUM(CaptureSysKeysMode);
 
+    // Must match the order of Overlay::DebugOverlayMode
+    enum PerformanceOverlayMode
+    {
+        POM_FULL,
+        POM_COMPACT,
+        POM_MINI
+    };
+    Q_ENUM(PerformanceOverlayMode);
+
+    // Must match the order of Overlay::DebugOverlayPosition
+    enum PerformanceOverlayPosition
+    {
+        POP_TOP_LEFT,
+        POP_TOP_RIGHT
+    };
+    Q_ENUM(PerformanceOverlayPosition);
+
     Q_PROPERTY(int width MEMBER width NOTIFY displayModeChanged)
     Q_PROPERTY(int height MEMBER height NOTIFY displayModeChanged)
     Q_PROPERTY(int fps MEMBER fps NOTIFY displayModeChanged)
@@ -140,6 +157,8 @@ public:
     Q_PROPERTY(bool gamepadMouse MEMBER gamepadMouse NOTIFY gamepadMouseChanged)
     Q_PROPERTY(bool detectNetworkBlocking MEMBER detectNetworkBlocking NOTIFY detectNetworkBlockingChanged)
     Q_PROPERTY(bool showPerformanceOverlay MEMBER showPerformanceOverlay NOTIFY showPerformanceOverlayChanged)
+    Q_PROPERTY(PerformanceOverlayMode performanceOverlayMode MEMBER performanceOverlayMode NOTIFY performanceOverlayModeChanged)
+    Q_PROPERTY(PerformanceOverlayPosition performanceOverlayPosition MEMBER performanceOverlayPosition NOTIFY performanceOverlayPositionChanged)
     Q_PROPERTY(AudioConfig audioConfig MEMBER audioConfig NOTIFY audioConfigChanged)
     Q_PROPERTY(VideoCodecConfig videoCodecConfig MEMBER videoCodecConfig NOTIFY videoCodecConfigChanged)
     Q_PROPERTY(bool enableHdr MEMBER enableHdr NOTIFY enableHdrChanged)
@@ -182,6 +201,8 @@ public:
     bool gamepadMouse;
     bool detectNetworkBlocking;
     bool showPerformanceOverlay;
+    PerformanceOverlayMode performanceOverlayMode;
+    PerformanceOverlayPosition performanceOverlayPosition;
     bool swapMouseButtons;
     bool muteOnFocusLoss;
     bool backgroundGamepad;
@@ -229,6 +250,8 @@ signals:
     void gamepadMouseChanged();
     void detectNetworkBlockingChanged();
     void showPerformanceOverlayChanged();
+    void performanceOverlayModeChanged();
+    void performanceOverlayPositionChanged();
     void mouseButtonsChanged();
     void muteOnFocusLossChanged();
     void backgroundGamepadChanged();

@@ -1967,7 +1967,21 @@ void Session::exec()
     // Start rich presence to indicate we're in game
     RichPresenceManager presence(*m_Preferences, m_App.name);
 
-    // Toggle the stats overlay if requested by the user
+    // Apply the user's stats overlay layout, then toggle it if requested
+    switch (m_Preferences->performanceOverlayMode) {
+    case StreamingPreferences::POM_COMPACT:
+        m_OverlayManager.setDebugOverlayMode(Overlay::DebugOverlayModeCompact);
+        break;
+    case StreamingPreferences::POM_MINI:
+        m_OverlayManager.setDebugOverlayMode(Overlay::DebugOverlayModeMini);
+        break;
+    case StreamingPreferences::POM_FULL:
+    default:
+        m_OverlayManager.setDebugOverlayMode(Overlay::DebugOverlayModeFull);
+        break;
+    }
+    m_OverlayManager.setDebugOverlayPosition(m_Preferences->performanceOverlayPosition == StreamingPreferences::POP_TOP_RIGHT ?
+                                                 Overlay::DebugOverlayPositionRight : Overlay::DebugOverlayPositionLeft);
     m_OverlayManager.setOverlayState(Overlay::OverlayDebug, m_Preferences->showPerformanceOverlay);
 
     // Switch to async logging mode when we enter the SDL loop

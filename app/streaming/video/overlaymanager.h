@@ -14,6 +14,21 @@ enum OverlayType {
     OverlayMax
 };
 
+// Amount of detail shown in the performance stats overlay
+enum DebugOverlayMode {
+    DebugOverlayModeFull,
+    DebugOverlayModeCompact,
+    DebugOverlayModeMini,
+    DebugOverlayModeMax
+};
+
+// Horizontal screen edge the performance stats overlay is anchored to
+enum DebugOverlayPosition {
+    DebugOverlayPositionLeft,
+    DebugOverlayPositionRight,
+    DebugOverlayPositionMax
+};
+
 class IOverlayRenderer
 {
 public:
@@ -38,11 +53,24 @@ public:
     int getOverlayFontSize(OverlayType type);
     SDL_Surface* getUpdatedOverlaySurface(OverlayType type);
 
+    // Renderers use this to decide whether to anchor the overlay surface
+    // to the right edge of the screen rather than the left edge.
+    bool isOverlayRightAligned(OverlayType type);
+
+    void setDebugOverlayMode(DebugOverlayMode mode);
+    DebugOverlayMode getDebugOverlayMode();
+    void cycleDebugOverlayMode();
+
+    void setDebugOverlayPosition(DebugOverlayPosition position);
+    DebugOverlayPosition getDebugOverlayPosition();
+    void cycleDebugOverlayPosition();
+
     void setOverlayRenderer(IOverlayRenderer* renderer);
 
 private:
     void notifyOverlayUpdated(OverlayType type);
     SDL_Surface* RenderTextOutlinedWrapped(TTF_Font* font, const char* text, SDL_Color textColor, SDL_Color outlineColor, int outlineWidth, int wrapWidth);
+    SDL_Surface* RenderTextPanel(TTF_Font* font, const char* text, SDL_Color textColor, SDL_Color panelColor);
 
     struct {
         bool enabled;
@@ -53,6 +81,8 @@ private:
         TTF_Font* font;
         SDL_Surface* surface;
     } m_Overlays[OverlayMax];
+    SDL_atomic_t m_DebugOverlayMode;
+    SDL_atomic_t m_DebugOverlayPosition;
     IOverlayRenderer* m_Renderer;
     QByteArray m_FontData;
     QReadWriteLock m_OverlayRendererLock;

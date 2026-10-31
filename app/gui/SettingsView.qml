@@ -1810,6 +1810,104 @@ Flickable {
                                   qsTr("You can toggle it at any time while streaming using Ctrl+Alt+Shift+S or Select+L1+R1+X.") + "\n\n" +
                                   qsTr("The performance overlay is not supported on Steam Link or Raspberry Pi.")
                 }
+
+                Row {
+                    spacing: 5
+                    width: parent.width
+
+                    Label {
+                        text: qsTr("Stats layout:")
+                        font.pointSize: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    AutoResizingComboBox {
+                        id: perfOverlayModeComboBox
+                        textRole: "text"
+                        model: ListModel {
+                            id: perfOverlayModeListModel
+                            ListElement {
+                                text: qsTr("Full")
+                                val: StreamingPreferences.POM_FULL
+                            }
+                            ListElement {
+                                text: qsTr("Compact")
+                                val: StreamingPreferences.POM_COMPACT
+                            }
+                            ListElement {
+                                text: qsTr("Mini")
+                                val: StreamingPreferences.POM_MINI
+                            }
+                        }
+
+                        // ignore setting the index at first, and actually set it when the component is loaded
+                        Component.onCompleted: {
+                            currentIndex = 0
+                            for (var i = 0; i < perfOverlayModeListModel.count; i++) {
+                                if (StreamingPreferences.performanceOverlayMode === perfOverlayModeListModel.get(i).val) {
+                                    currentIndex = i
+                                    break
+                                }
+                            }
+                        }
+
+                        // ::onActivated must be used, as it only listens for when the index is changed by a human
+                        onActivated: {
+                            StreamingPreferences.performanceOverlayMode = perfOverlayModeListModel.get(currentIndex).val
+                        }
+
+                        ToolTip.delay: 1000
+                        ToolTip.timeout: 8000
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Full: every statistic with detailed descriptions.") + "\n" +
+                                      qsTr("Compact: all key statistics in a few short lines.") + "\n" +
+                                      qsTr("Mini: a single line with frame rate, latency and frame drops.") + "\n\n" +
+                                      qsTr("You can cycle the layout while streaming using Ctrl+Alt+Shift+O or Select+L1+R1+Y.")
+                    }
+
+                    Label {
+                        text: qsTr("Position:")
+                        font.pointSize: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    AutoResizingComboBox {
+                        id: perfOverlayPositionComboBox
+                        textRole: "text"
+                        model: ListModel {
+                            id: perfOverlayPositionListModel
+                            ListElement {
+                                text: qsTr("Top left")
+                                val: StreamingPreferences.POP_TOP_LEFT
+                            }
+                            ListElement {
+                                text: qsTr("Top right")
+                                val: StreamingPreferences.POP_TOP_RIGHT
+                            }
+                        }
+
+                        // ignore setting the index at first, and actually set it when the component is loaded
+                        Component.onCompleted: {
+                            currentIndex = 0
+                            for (var i = 0; i < perfOverlayPositionListModel.count; i++) {
+                                if (StreamingPreferences.performanceOverlayPosition === perfOverlayPositionListModel.get(i).val) {
+                                    currentIndex = i
+                                    break
+                                }
+                            }
+                        }
+
+                        // ::onActivated must be used, as it only listens for when the index is changed by a human
+                        onActivated: {
+                            StreamingPreferences.performanceOverlayPosition = perfOverlayPositionListModel.get(currentIndex).val
+                        }
+
+                        ToolTip.delay: 1000
+                        ToolTip.timeout: 5000
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("You can move the overlay while streaming using Ctrl+Alt+Shift+P or Select+L1+R1+B.")
+                    }
+                }
             }
         }
     }

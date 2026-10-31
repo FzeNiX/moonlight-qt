@@ -443,8 +443,9 @@ void VDPAURenderer::notifyOverlayUpdated(Overlay::OverlayType type)
             overlayRect.y0 = m_DisplayHeight - newSurface->h;
         }
         else if (type == Overlay::OverlayDebug) {
-            // Top left
-            overlayRect.x0 = 0;
+            // Top left or top right
+            overlayRect.x0 = Session::get()->getOverlayManager().isOverlayRightAligned(type) ?
+                        m_DisplayWidth - SDL_min((uint32_t)newSurface->w, m_DisplayWidth) : 0;
             overlayRect.y0 = 0;
         }
 

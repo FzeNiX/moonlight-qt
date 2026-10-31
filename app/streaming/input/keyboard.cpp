@@ -67,6 +67,24 @@ void SdlInputHandler::performSpecialKeyCombo(KeyCombo combo)
                                                             !Session::get()->getOverlayManager().isOverlayEnabled(Overlay::OverlayDebug));
         break;
 
+    case KeyComboCycleStatsOverlayMode:
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                    "Detected stats layout cycle combo");
+
+        // Full -> Compact -> Mini, and show the overlay if it was hidden
+        Session::get()->getOverlayManager().cycleDebugOverlayMode();
+        Session::get()->getOverlayManager().setOverlayState(Overlay::OverlayDebug, true);
+        break;
+
+    case KeyComboCycleStatsOverlayPosition:
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                    "Detected stats position cycle combo");
+
+        // Move the overlay between the top left and top right corners
+        Session::get()->getOverlayManager().cycleDebugOverlayPosition();
+        Session::get()->getOverlayManager().setOverlayState(Overlay::OverlayDebug, true);
+        break;
+
     case KeyComboToggleMouseMode:
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                     "Detected mouse mode toggle combo");

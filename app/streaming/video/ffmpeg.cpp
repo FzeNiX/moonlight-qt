@@ -1,6 +1,7 @@
 #include <Limelight.h>
 #include "ffmpeg.h"
 #include "utils.h"
+#include <cstdarg>
 #include "streaming/session.h"
 
 #include <h264_stream.h>
@@ -797,7 +798,25 @@ void FFmpegVideoDecoder::addVideoStats(VIDEO_STATS& src, VIDEO_STATS& dst)
     dst.renderedFps     = (double)dst.renderedFrames / timeDiffSecs;
 }
 
-void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, int length)
+// Appends formatted text at output[*offset], advancing *offset. Returns false on truncation.
+static bool appendStatsText(char* output, int length, int* offset, const char* format, ...)
+{
+    va_list args;
+
+    va_start(args, format);
+    int ret = vsnprintf(&output[*offset], length - *offset, format, args);
+    va_end(args);
+
+    if (ret < 0 || ret >= length - *offset) {
+        SDL_assert(false);
+        return false;
+    }
+
+    *offset += ret;
+    return true;
+}
+
+void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, int length, Overlay::DebugOverlayMode mode)
 {
     int offset = 0;
     const char* codecString;
@@ -872,6 +891,116 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
         SDL_assert(false);
         codecString = "UNKNOWN";
         break;
+    }
+
+    if (mode == Overlay::DebugOverlayModeMini) {
+        // Single line with only the numbers most people glance at
+        if (stats.receivedFps > 0) {
+            if (!appendStatsText(output, length, &offset, "%.1f FPS", stats.renderedFps)) {
+                return;
+            }
+        }
+
+        if (stats.renderedFrames != 0) {
+            float dropPct = stats.totalFrames != 0 ?
+                        (float)(stats.networkDroppedFrames + stats.pacerDroppedFrames) / stats.totalFrames * 100 : 0;
+            char rttString[16];
+
+            if (stats.lastRtt != 0) {
+                snprintf(rttString, sizeof(rttString), "%u ms", stats.lastRtt);
+            }
+            else {
+                snprintf(rttString, sizeof(rttString), "N/A");
+            }
+
+            if (!appendStatsText(output, length, &offset,
+                                 "%sRTT %s  Dec %.1f ms  Drop %.1f%%",
+                                 offset != 0 ? "  " : "",
+                                 rttString,
+                                 (double)(stats.totalDecodeTimeUs / 1000.0) / stats.decodedFrames,
+                                 dropPct)) {
+                return;
+            }
+        }
+
+        return;
+    }
+    else if (mode == Overlay::DebugOverlayModeCompact) {
+        // Short labels, one metric group per line, aligned for a monospace font
+        if (stats.receivedFps > 0) {
+            if (m_VideoDecoderCtx != nullptr) {
+                if (!appendStatsText(output, length, &offset,
+                                     "%dx%d %.2f FPS %s\n",
+                                     m_VideoDecoderCtx->width,
+                                     m_VideoDecoderCtx->height,
+                                     stats.totalFps,
+                                     codecString)) {
+                    return;
+                }
+
+#ifdef DISPLAY_BITRATE
+                if (!appendStatsText(output, length, &offset,
+                                     "Bitrate  %.1f Mbps (peak %.1f)\n",
+                                     m_BwTracker.GetAverageMbps(),
+                                     m_BwTracker.GetPeakMbps())) {
+                    return;
+                }
+#endif
+            }
+
+            if (!appendStatsText(output, length, &offset,
+                                 "FPS      net %.1f  dec %.1f  rnd %.1f\n",
+                                 stats.receivedFps,
+                                 stats.decodedFps,
+                                 stats.renderedFps)) {
+                return;
+            }
+        }
+
+        if (stats.renderedFrames != 0) {
+            char rttString[32];
+
+            if (stats.lastRtt != 0) {
+                snprintf(rttString, sizeof(rttString), "%u ms (+/-%u)", stats.lastRtt, stats.lastRttVariance);
+            }
+            else {
+                snprintf(rttString, sizeof(rttString), "N/A");
+            }
+
+            if (!appendStatsText(output, length, &offset, "Latency  net %s", rttString)) {
+                return;
+            }
+        }
+
+        if (stats.framesWithHostProcessingLatency > 0) {
+            if (!appendStatsText(output, length, &offset,
+                                 "%shost %.1f ms",
+                                 stats.renderedFrames != 0 ? "  " : "Latency  ",
+                                 (float)stats.totalHostProcessingLatency / 10 / stats.framesWithHostProcessingLatency)) {
+                return;
+            }
+        }
+
+        if (stats.renderedFrames != 0 || stats.framesWithHostProcessingLatency > 0) {
+            if (!appendStatsText(output, length, &offset, "\n")) {
+                return;
+            }
+        }
+
+        if (stats.renderedFrames != 0) {
+            if (!appendStatsText(output, length, &offset,
+                                 "Time     dec %.2f  queue %.2f  rnd %.2f ms\n"
+                                 "Drops    net %.2f%%  jitter %.2f%%",
+                                 (double)(stats.totalDecodeTimeUs / 1000.0) / stats.decodedFrames,
+                                 (double)(stats.totalPacerTimeUs / 1000.0) / stats.renderedFrames,
+                                 (double)(stats.totalRenderTimeUs / 1000.0) / stats.renderedFrames,
+                                 (float)stats.networkDroppedFrames / stats.totalFrames * 100,
+                                 (float)stats.pacerDroppedFrames / stats.decodedFrames * 100)) {
+                return;
+            }
+        }
+
+        return;
     }
 
     if (stats.receivedFps > 0) {
@@ -2144,7 +2273,8 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
 
             stringifyVideoStats(lastTwoWndStats,
                                 Session::get()->getOverlayManager().getOverlayText(Overlay::OverlayDebug),
-                                Session::get()->getOverlayManager().getOverlayMaxTextLength());
+                                Session::get()->getOverlayManager().getOverlayMaxTextLength(),
+                                Session::get()->getOverlayManager().getDebugOverlayMode());
             Session::get()->getOverlayManager().setOverlayTextUpdated(Overlay::OverlayDebug);
         }
 

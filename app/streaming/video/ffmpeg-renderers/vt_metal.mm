@@ -534,8 +534,9 @@ public:
                     renderRect.y = 0;
                 }
                 else if (i == Overlay::OverlayDebug) {
-                    // Top left
-                    renderRect.x = 0;
+                    // Top left or top right
+                    renderRect.x = Session::get()->getOverlayManager().isOverlayRightAligned((Overlay::OverlayType)i) ?
+                                m_LastDrawableWidth - (int)overlayTexture.width : 0;
                     renderRect.y = m_LastDrawableHeight - overlayTexture.height;
                 }
 

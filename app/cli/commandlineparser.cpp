@@ -321,6 +321,15 @@ StreamCommandLineParser::StreamCommandLineParser()
         {"fullscreen", StreamingPreferences::CSK_FULLSCREEN},
         {"always",     StreamingPreferences::CSK_ALWAYS},
     };
+    m_PerfOverlayModeMap = {
+        {"full",    StreamingPreferences::POM_FULL},
+        {"compact", StreamingPreferences::POM_COMPACT},
+        {"mini",    StreamingPreferences::POM_MINI},
+    };
+    m_PerfOverlayPositionMap = {
+        {"left",  StreamingPreferences::POP_TOP_LEFT},
+        {"right", StreamingPreferences::POP_TOP_RIGHT},
+    };
 }
 
 StreamCommandLineParser::~StreamCommandLineParser()
@@ -366,6 +375,8 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
     parser.addToggleOption("swap-gamepad-buttons", "swap A/B and X/Y gamepad buttons (Nintendo-style)");
     parser.addToggleOption("keep-awake", "prevent display sleep while streaming");
     parser.addToggleOption("performance-overlay", "show performance overlay");
+    parser.addChoiceOption("performance-overlay-mode", "performance overlay layout", m_PerfOverlayModeMap.keys());
+    parser.addChoiceOption("performance-overlay-position", "performance overlay position", m_PerfOverlayPositionMap.keys());
     parser.addToggleOption("hdr", "HDR streaming");
     parser.addToggleOption("yuv444", "YUV 4:4:4 sampling, if supported");
     parser.addChoiceOption("capture-system-keys", "capture system key combos", m_CaptureSysKeysModeMap.keys());
@@ -484,6 +495,16 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
 
     // Resolve --performance-overlay and --no-performance-overlay options
     preferences->showPerformanceOverlay = parser.getToggleOptionValue("performance-overlay", preferences->showPerformanceOverlay);
+
+    // Resolve --performance-overlay-mode option
+    if (parser.isSet("performance-overlay-mode")) {
+        preferences->performanceOverlayMode = mapValue(m_PerfOverlayModeMap, parser.getChoiceOptionValue("performance-overlay-mode"));
+    }
+
+    // Resolve --performance-overlay-position option
+    if (parser.isSet("performance-overlay-position")) {
+        preferences->performanceOverlayPosition = mapValue(m_PerfOverlayPositionMap, parser.getChoiceOptionValue("performance-overlay-position"));
+    }
 
     // Resolve --hdr and --no-hdr options
     preferences->enableHdr = parser.getToggleOptionValue("hdr", preferences->enableHdr);

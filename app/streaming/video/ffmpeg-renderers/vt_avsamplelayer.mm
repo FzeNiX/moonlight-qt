@@ -412,6 +412,13 @@ public:
             switch (type) {
             case Overlay::OverlayDebug:
                 [m_OverlayTextFields[type] setAlignment:NSTextAlignmentLeft];
+
+                // Draw stats on a translucent rounded panel for legibility
+                [m_OverlayTextFields[type] setDrawsBackground:YES];
+                [m_OverlayTextFields[type] setBackgroundColor:[NSColor colorWithSRGBRed:0.06 green:0.06 blue:0.08 alpha:0.72]];
+                [m_OverlayTextFields[type] setWantsLayer:YES];
+                m_OverlayTextFields[type].layer.cornerRadius = 6.0;
+                m_OverlayTextFields[type].layer.masksToBounds = YES;
                 break;
             case Overlay::OverlayStatusUpdate:
                 [m_OverlayTextFields[type] setAlignment:NSTextAlignmentRight];
@@ -422,13 +429,40 @@ public:
 
             SDL_Color color = Session::get()->getOverlayManager().getOverlayColor(type);
             [m_OverlayTextFields[type] setTextColor:[NSColor colorWithSRGBRed:color.r / 255.0 green:color.g / 255.0 blue:color.b / 255.0 alpha:color.a / 255.0]];
-            [m_OverlayTextFields[type] setFont:[NSFont messageFontOfSize:Session::get()->getOverlayManager().getOverlayFontSize(type)]];
+            if (type == Overlay::OverlayDebug) {
+                // Fixed pitch keeps the compact layout's columns aligned
+                [m_OverlayTextFields[type] setFont:[NSFont userFixedPitchFontOfSize:Session::get()->getOverlayManager().getOverlayFontSize(type) * 0.8]];
+            }
+            else {
+                [m_OverlayTextFields[type] setFont:[NSFont messageFontOfSize:Session::get()->getOverlayManager().getOverlayFontSize(type)]];
+            }
 
             [m_StreamView addSubview: m_OverlayTextFields[type]];
         }
 
         // Update text contents
-        [m_OverlayTextFields[type] setStringValue: [NSString stringWithUTF8String:Session::get()->getOverlayManager().getOverlayText(type)]];
+        NSString* overlayText = [NSString stringWithUTF8String:Session::get()->getOverlayManager().getOverlayText(type)];
+        if (type == Overlay::OverlayDebug) {
+            // Trailing line breaks would only add empty space to the panel
+            overlayText = [overlayText stringByTrimmingCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+        }
+        [m_OverlayTextFields[type] setStringValue: overlayText];
+
+        if (type == Overlay::OverlayDebug) {
+            // Shrink the panel to the text and anchor it to the top left or top right corner
+            const CGFloat margin = 8.0;
+            NSRect bounds = m_StreamView.bounds;
+
+            [m_OverlayTextFields[type] sizeToFit];
+            NSSize size = m_OverlayTextFields[type].frame.size;
+
+            NSPoint origin;
+            origin.x = Session::get()->getOverlayManager().isOverlayRightAligned(type) ?
+                        NSMaxX(bounds) - size.width - margin : NSMinX(bounds) + margin;
+            origin.y = [m_StreamView isFlipped] ?
+                        NSMinY(bounds) + margin : NSMaxY(bounds) - size.height - margin;
+            [m_OverlayTextFields[type] setFrameOrigin:origin];
+        }
 
         // Unhide if it's enabled
         [m_OverlayTextFields[type] setHidden: !Session::get()->getOverlayManager().isOverlayEnabled(type)];

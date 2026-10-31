@@ -1569,8 +1569,8 @@ void DrmRenderer::notifyOverlayUpdated(Overlay::OverlayType type)
             overlayRect.y = m_OutputRect.h - newSurface->h;
         }
         else if (type == Overlay::OverlayDebug) {
-            // Top left
-            overlayRect.x = 0;
+            // Top left or top right
+            overlayRect.x = Session::get()->getOverlayManager().isOverlayRightAligned(type) ? SDL_max(0, m_OutputRect.w - newSurface->w) : 0;
             overlayRect.y = 0;
         }
 

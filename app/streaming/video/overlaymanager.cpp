@@ -9,8 +9,13 @@ OverlayManager::OverlayManager() :
 {
     memset(m_Overlays, 0, sizeof(m_Overlays));
 
-    m_Overlays[OverlayType::OverlayDebug].color = {0xD0, 0xD0, 0x00, 0xFF};
+    // Near-white text on a translucent dark panel stays readable on both
+    // bright and dark game content (unlike the old unpadded yellow text).
+    m_Overlays[OverlayType::OverlayDebug].color = {0xF0, 0xF0, 0xF0, 0xFF};
     m_Overlays[OverlayType::OverlayDebug].fontSize = 20;
+
+    SDL_AtomicSet(&m_DebugOverlayMode, DebugOverlayModeFull);
+    SDL_AtomicSet(&m_DebugOverlayPosition, DebugOverlayPositionLeft);
 
     m_Overlays[OverlayType::OverlayStatusUpdate].color = {0xCC, 0x00, 0x00, 0xFF};
     m_Overlays[OverlayType::OverlayStatusUpdate].fontSize = 36;
@@ -81,6 +86,60 @@ SDL_Surface* OverlayManager::getUpdatedOverlaySurface(OverlayType type)
     return (SDL_Surface*)SDL_AtomicSetPtr((void**)&m_Overlays[type].surface, nullptr);
 }
 
+bool OverlayManager::isOverlayRightAligned(OverlayType type)
+{
+    switch (type) {
+    case OverlayDebug:
+        return getDebugOverlayPosition() == DebugOverlayPositionRight;
+    default:
+        return false;
+    }
+}
+
+void OverlayManager::setDebugOverlayMode(DebugOverlayMode mode)
+{
+    if (mode < 0 || mode >= DebugOverlayModeMax) {
+        SDL_assert(false);
+        mode = DebugOverlayModeFull;
+    }
+
+    // The new text layout is picked up on the next stats refresh
+    SDL_AtomicSet(&m_DebugOverlayMode, mode);
+}
+
+DebugOverlayMode OverlayManager::getDebugOverlayMode()
+{
+    return (DebugOverlayMode)SDL_AtomicGet(&m_DebugOverlayMode);
+}
+
+void OverlayManager::cycleDebugOverlayMode()
+{
+    setDebugOverlayMode((DebugOverlayMode)((getDebugOverlayMode() + 1) % DebugOverlayModeMax));
+}
+
+void OverlayManager::setDebugOverlayPosition(DebugOverlayPosition position)
+{
+    if (position < 0 || position >= DebugOverlayPositionMax) {
+        SDL_assert(false);
+        position = DebugOverlayPositionLeft;
+    }
+
+    if (SDL_AtomicSet(&m_DebugOverlayPosition, position) != position) {
+        // Re-render so the renderer can recompute the overlay placement
+        setOverlayTextUpdated(OverlayDebug);
+    }
+}
+
+DebugOverlayPosition OverlayManager::getDebugOverlayPosition()
+{
+    return (DebugOverlayPosition)SDL_AtomicGet(&m_DebugOverlayPosition);
+}
+
+void OverlayManager::cycleDebugOverlayPosition()
+{
+    setDebugOverlayPosition((DebugOverlayPosition)((getDebugOverlayPosition() + 1) % DebugOverlayPositionMax));
+}
+
 void OverlayManager::setOverlayTextUpdated(OverlayType type)
 {
     // Only update the overlay state if it's enabled. If it's not enabled,
@@ -147,18 +206,28 @@ void OverlayManager::notifyOverlayUpdated(OverlayType type)
         }
     }
 
-    // Exchange the old surface with the new one
-    SDL_Surface* oldSurface = (SDL_Surface*)SDL_AtomicSetPtr(
-        (void**)&m_Overlays[type].surface,
-        m_Overlays[type].enabled ?
+    SDL_Surface* newSurface = nullptr;
+    if (m_Overlays[type].enabled) {
+        if (type == OverlayDebug) {
+            // Stats are drawn on a translucent panel for legibility
+            newSurface = RenderTextPanel(m_Overlays[type].font,
+                                         m_Overlays[type].text,
+                                         m_Overlays[type].color,
+                                         {0x10, 0x10, 0x14, 0xB8});
+        }
+        else {
             // The _Wrapped variant is required for line breaks to work
-            RenderTextOutlinedWrapped(m_Overlays[type].font,
-                                      m_Overlays[type].text,
-                                      m_Overlays[type].color,
-                                      {0, 0, 0, 255},
-                                      4,
-                                      1024)
-            : nullptr);
+            newSurface = RenderTextOutlinedWrapped(m_Overlays[type].font,
+                                                   m_Overlays[type].text,
+                                                   m_Overlays[type].color,
+                                                   {0, 0, 0, 255},
+                                                   4,
+                                                   1024);
+        }
+    }
+
+    // Exchange the old surface with the new one
+    SDL_Surface* oldSurface = (SDL_Surface*)SDL_AtomicSetPtr((void**)&m_Overlays[type].surface, newSurface);
 
     // Notify the renderer
     m_Renderer->notifyOverlayUpdated(type);
@@ -212,3 +281,106 @@ SDL_Surface* OverlayManager::RenderTextOutlinedWrapped(TTF_Font* font, const cha
 }
 
 
+
+SDL_Surface* OverlayManager::RenderTextPanel(TTF_Font* font, const char* text, SDL_Color textColor, SDL_Color panelColor)
+{
+    // Spacing (in pixels) between the screen edge and the panel,
+    // the panel edge and the text, and the panel corner radius.
+    const int margin = 8;
+    const int padX = 10;
+    const int padY = 6;
+    const int radius = 6;
+
+    // Trailing line breaks would just add empty space at the bottom of the panel
+    QByteArray trimmedText(text);
+    while (trimmedText.endsWith('\n')) {
+        trimmedText.chop(1);
+    }
+
+    const int outlineWidth = 1;
+    const int maxWrapWidth = 1024;
+
+    // Some SDL_ttf versions size wrapped text surfaces to the wrap width rather
+    // than the longest line, so measure the longest line to keep the panel tight.
+    int contentWidth = 0;
+    int slackWidth = 0;
+    int oldOutline = TTF_GetFontOutline(font);
+    TTF_SetFontOutline(font, outlineWidth);
+    for (const QByteArray& line : trimmedText.split('\n')) {
+        int lineWidth;
+        if (TTF_SizeUTF8(font, line.constData(), &lineWidth, nullptr) == 0) {
+            contentWidth = SDL_max(contentWidth, lineWidth);
+        }
+    }
+    // SDL_ttf's wrapping can break a line that exactly fits the wrap width,
+    // so leave a couple of characters of slack to ensure it only breaks on '\n'.
+    TTF_SizeUTF8(font, "MM", &slackWidth, nullptr);
+    TTF_SetFontOutline(font, oldOutline);
+
+    int wrapWidth = (contentWidth > 0) ? SDL_min(contentWidth + slackWidth, maxWrapWidth) : maxWrapWidth;
+
+    // A thin outline keeps glyph edges crisp against the panel
+    SDL_Surface* textSurface = RenderTextOutlinedWrapped(font, trimmedText.constData(), textColor, {0, 0, 0, 0xFF}, outlineWidth, wrapWidth);
+    if (textSurface == nullptr) {
+        return nullptr;
+    }
+
+    // Text is left-aligned, so anything past the longest line is empty
+    if (contentWidth <= 0 || contentWidth + 2 * outlineWidth > textSurface->w) {
+        contentWidth = textSurface->w;
+    }
+    else {
+        contentWidth += 2 * outlineWidth;
+    }
+
+    int panelW = contentWidth + 2 * padX;
+    int panelH = textSurface->h + 2 * padY;
+
+    // The surface includes a transparent margin, so renderers can keep
+    // placing it flush against the screen edge.
+    SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0,
+                                                          panelW + 2 * margin,
+                                                          panelH + 2 * margin,
+                                                          32,
+                                                          SDL_PIXELFORMAT_ARGB8888);
+    if (surface == nullptr) {
+        SDL_FreeSurface(textSurface);
+        return nullptr;
+    }
+
+    SDL_FillRect(surface, nullptr, SDL_MapRGBA(surface->format, 0, 0, 0, 0));
+
+    if (SDL_LockSurface(surface) == 0) {
+        for (int y = 0; y < panelH; y++) {
+            Uint32* row = (Uint32*)((Uint8*)surface->pixels + (y + margin) * surface->pitch) + margin;
+
+            for (int x = 0; x < panelW; x++) {
+                // Distance into the rounded corner region (0 outside of corners)
+                float dx = SDL_max(0, SDL_max(radius - x, x - (panelW - 1 - radius)));
+                float dy = SDL_max(0, SDL_max(radius - y, y - (panelH - 1 - radius)));
+                float coverage = 1.0f;
+
+                if (dx > 0 && dy > 0) {
+                    // Anti-aliased rounded corner
+                    coverage = SDL_min(1.0f, SDL_max(0.0f, radius + 0.5f - SDL_sqrtf(dx * dx + dy * dy)));
+                }
+
+                if (coverage > 0.0f) {
+                    row[x] = SDL_MapRGBA(surface->format,
+                                         panelColor.r, panelColor.g, panelColor.b,
+                                         (Uint8)(panelColor.a * coverage));
+                }
+            }
+        }
+
+        SDL_UnlockSurface(surface);
+    }
+
+    SDL_SetSurfaceBlendMode(textSurface, SDL_BLENDMODE_BLEND);
+    SDL_Rect src = { 0, 0, contentWidth, textSurface->h };
+    SDL_Rect dst = { margin + padX, margin + padY, contentWidth, textSurface->h };
+    SDL_BlitSurface(textSurface, &src, surface, &dst);
+    SDL_FreeSurface(textSurface);
+
+    return surface;
+}

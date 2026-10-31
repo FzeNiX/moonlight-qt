@@ -670,8 +670,8 @@ void DXVA2Renderer::notifyOverlayUpdated(Overlay::OverlayType type)
         renderRect.y = m_DisplayHeight - newSurface->h;
     }
     else if (type == Overlay::OverlayDebug) {
-        // Top left
-        renderRect.x = 0;
+        // Top left or top right
+        renderRect.x = Session::get()->getOverlayManager().isOverlayRightAligned(type) ? m_DisplayWidth - newSurface->w : 0;
         renderRect.y = 0;
     }
 

@@ -168,6 +168,8 @@ private:
         KeyComboTogglePointerRegionLock,
         KeyComboQuitAndExit,
         KeyComboToggleKeyboardGrab,
+        KeyComboCycleStatsOverlayMode,
+        KeyComboCycleStatsOverlayPosition,
         KeyComboMax
     };
 

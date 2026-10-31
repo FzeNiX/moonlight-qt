@@ -767,8 +767,8 @@ void VAAPIRenderer::notifyOverlayUpdated(Overlay::OverlayType type)
             overlayRect.y = -newSurface->h;
         }
         else if (type == Overlay::OverlayDebug) {
-            // Top left
-            overlayRect.x = 0;
+            // Top left or top right (negative values are relative to the right/bottom edge)
+            overlayRect.x = Session::get()->getOverlayManager().isOverlayRightAligned(type) ? -newSurface->w : 0;
             overlayRect.y = 0;
         }
 

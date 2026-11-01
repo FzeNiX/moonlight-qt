@@ -9,6 +9,11 @@ on:
       ci_version:
         required: true
         type: string
+      ref:
+        description: Git ref to build (defaults to the triggering ref)
+        required: false
+        type: string
+        default: ''
 
 jobs:
   build:
@@ -20,6 +25,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v5
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
           fetch-depth: 1
 

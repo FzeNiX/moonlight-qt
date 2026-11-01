@@ -1,0 +1,200 @@
+---
+# Builds release packages and attaches them to a GitHub release.
+#
+# - Runs automatically when a release is published.
+# - Can also be run manually from the Actions tab ("Run workflow") with the
+#   tag of an existing release, e.g. to (re)attach files to it.
+#
+# Unlike CI builds, these use the version from app/version.txt (no CI_VERSION),
+# so Windows gets a real installer and a portable ZIP that runs in portable mode.
+# File names include the release tag (e.g. MoonlightSetup-6.2.0-fz.1.exe).
+name: Release
+permissions:
+  contents: read
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag of the existing release to build and attach files to (e.g. v6.2.0-fz.1)
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - name: Determine release tag
+        id: tag
+        shell: bash
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          if [ -z "$TAG" ]; then
+            echo "::error::No release tag given"
+            exit 1
+          fi
+          # File name version: the tag without a leading "v" (v6.2.0-fz.1 -> 6.2.0-fz.1)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+  build-linux:
+    needs: setup
+    uses: ./.github/workflows/build-appimage.yml
+    with:
+      ci_version: ${{ needs.setup.outputs.version }}
+      ref: refs/tags/${{ needs.setup.outputs.tag }}
+
+  build-windows:
+    needs: setup
+    runs-on: windows-2025
+    env:
+      QT_VERSION: 6.12.0
+      RELEASE_VERSION: ${{ needs.setup.outputs.version }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ needs.setup.outputs.tag }}
+          submodules: 'recursive'
+          fetch-depth: 1
+
+      - name: Download dependencies
+        run: powershell ./setup-deps.ps1
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          cache: true
+          set-env: false
+          add-tools-to-path: false
+          tools: 'tools_qtcreator_gui'
+          version: ${{ env.QT_VERSION }}
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@073e34d7c2ab4ae6961ed7cca690b3abd5ba5a7e'
+
+      - name: Install Qt ARM64
+        uses: jurplel/install-qt-action@v4
+        with:
+          cache: true
+          set-env: false
+          add-tools-to-path: false
+          arch: win64_msvc2022_arm64_cross_compiled
+          version: ${{ env.QT_VERSION }}
+
+      - name: Build x64 binaries
+        shell: cmd
+        run: |
+          set "PATH=%QT_PATH%;%PATH%"
+          scripts\build-arch.bat Release x64
+        env:
+          QT_PATH: ${{ runner.workspace }}\Qt\${{ env.QT_VERSION }}\msvc2022_64\bin
+
+      - name: Build ARM64 binaries
+        shell: cmd
+        run: |
+          set "PATH=%QT_PATH%;%PATH%"
+          scripts\build-arch.bat Release arm64
+        env:
+          QT_PATH: ${{ runner.workspace }}\Qt\${{ env.QT_VERSION }}\msvc2022_arm64\bin
+
+      - name: Build installer bundle
+        shell: cmd
+        run: scripts\generate-bundle.bat Release
+
+      - name: Collect release files
+        shell: pwsh
+        run: |
+          $base = Get-Content app/version.txt -Raw
+          $base = $base.Trim()
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item "build/installer-release/MoonlightSetup-$base.exe" "release/MoonlightSetup-$env:RELEASE_VERSION.exe"
+          Copy-Item "build/installer-x64-release/MoonlightPortable-x64-$base.zip" "release/MoonlightPortable-x64-$env:RELEASE_VERSION.zip"
+          Copy-Item "build/installer-arm64-release/MoonlightPortable-arm64-$base.zip" "release/MoonlightPortable-arm64-$env:RELEASE_VERSION.zip"
+          Get-ChildItem release
+
+      - name: Upload release files
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-windows
+          path: release/*
+          compression-level: 0
+          if-no-files-found: error
+
+  build-macos:
+    needs: setup
+    runs-on: macos-26
+    env:
+      RELEASE_VERSION: ${{ needs.setup.outputs.version }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ needs.setup.outputs.tag }}
+          submodules: 'recursive'
+          fetch-depth: 1
+
+      - name: Install create-dmg
+        run: |
+          brew install node
+          npm install --global create-dmg
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          cache: true
+          version: 6.11.2
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git@073e34d7c2ab4ae6961ed7cca690b3abd5ba5a7e'
+
+      - name: Build DMG
+        run: bash scripts/generate-dmg.sh Release
+
+      - name: Collect release files
+        run: |
+          base=$(tr -d '[:space:]' < app/version.txt)
+          mkdir -p release
+          cp "build/installer-Release/Moonlight-$base.dmg" "release/Moonlight-$RELEASE_VERSION.dmg"
+          ls -l release
+
+      - name: Upload release files
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-macos
+          path: release/*
+          compression-level: 0
+          if-no-files-found: error
+
+  publish:
+    needs: [setup, build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download build outputs
+        uses: actions/download-artifact@v6
+        with:
+          path: artifacts
+
+      - name: Attach files to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.setup.outputs.tag }}
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: |
+          mkdir -p upload
+          cp artifacts/release-windows/* upload/
+          cp artifacts/release-macos/* upload/
+          cp "artifacts/Moonlight-LinuxAppImage-$VERSION/Moonlight-$VERSION-x86_64.AppImage" upload/
+          (cd upload && sha256sum * > SHA256SUMS.txt)
+          ls -l upload
+          gh release upload "$TAG" upload/* --clobber --repo "$GITHUB_REPOSITORY"
